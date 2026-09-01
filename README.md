@@ -60,10 +60,13 @@ needed).
    should see "Success. No rows returned."
 4. Repeat step 3 for `supabase/migrations/0002_functions.sql` — a new
    query, paste the whole file, Run.
-5. Repeat step 3 again for `supabase/migrations/0003_rls.sql` — a new
-   query, paste the whole file, Run.
-   - **Run them in this exact order** (0001, then 0002, then 0003) — each
-     one depends on the previous one having already run.
+5. Repeat step 3 again for `supabase/migrations/0003_rls.sql`, then once
+   more for `supabase/migrations/0005_oauth_display_name.sql` — a new
+   query each, paste the whole file, Run.
+   - **Run them in this exact order** (0001, 0002, 0003, then 0005) — each
+     one depends on the previous ones having already run. (0004 is the
+     optional cron/scheduling file; run it too if you're wiring up the
+     automated ESPN sync jobs.)
 6. Go to **Settings → API** in the left sidebar. Copy the **Project URL**,
    the **anon public** key, and the **service_role** key — you'll paste
    these into `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
@@ -71,13 +74,36 @@ needed).
    dev, or in your Vercel project's Environment Variables for the deployed
    site). **Never share the service_role key** — treat it like a master
    password.
-7. Go to **Authentication → Providers** and confirm **Email** is enabled
-   (it is by default). That's what powers login/signup in the app.
-8. Have each of the 8 managers sign up once through the app's Sign Up
-   page. The first 8 non-commissioner signups are automatically assigned
-   a manager seat (1–8) — no manual setup needed. To make an account a
-   commissioner, go to **Table Editor → profiles** in Supabase Studio,
-   find that person's row, and set `is_commissioner` to `true`.
+7. **Set up Sign in with Google.** Auth is Google OAuth — no passwords, no
+   email-confirmation step.
+   a. In Supabase, go to **Authentication → Providers → Google** and toggle
+      it on. It shows you a **Callback URL** that looks like
+      `https://<your-project-ref>.supabase.co/auth/v1/callback` — copy it.
+   b. In the [Google Cloud Console](https://console.cloud.google.com/),
+      create (or reuse) a project, then **APIs & Services → Credentials →
+      Create Credentials → OAuth client ID → Web application**. Under
+      **Authorized redirect URIs**, paste the Supabase Callback URL from
+      step (a). Save, then copy the generated **Client ID** and **Client
+      secret**.
+   c. Paste that Client ID and secret back into the Supabase Google
+      provider form and save.
+8. **Point Supabase at your app's real URLs** (this is what fixes redirects
+   landing on `localhost`). Go to **Authentication → URL Configuration**:
+   - Set **Site URL** to your deployed app, e.g.
+     `https://tds-only-league.vercel.app` (swap in your actual Vercel
+     domain — find it on the Vercel project's dashboard).
+   - Under **Redirect URLs**, add both of these so sign-in works in prod
+     and in local dev:
+     - `https://tds-only-league.vercel.app/auth/callback`
+     - `http://localhost:3000/auth/callback`
+   The app sends Google back to `/auth/callback` on whatever host it's
+   running on, and Supabase only honors redirect targets on this list.
+9. Have each of the 8 managers open the app and click **Sign in with
+   Google** once. The first authorization creates their account; the first
+   8 to sign in are automatically assigned a manager seat (1–8) — no manual
+   setup needed. To make an account a commissioner, go to **Table Editor →
+   profiles** in Supabase Studio, find that person's row, and set
+   `is_commissioner` to `true`.
 
 If something looks wrong after running a migration, open the SQL Editor's
 history, check the error message, and re-paste just that one file again —
