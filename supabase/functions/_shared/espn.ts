@@ -30,6 +30,14 @@ function sleep(ms: number) {
  * Fetch JSON with a timeout and 2-3x retry w/ exponential backoff.
  * Throws on final failure — callers must treat that as fatal for the run
  * (log a sync_log error row, do not substitute stale data).
+ *
+ * On a 403 specifically, we don't yet know whether ESPN is blocking on
+ * User-Agent, on egress IP, or something else — so retries alternate
+ * between sending the browser-like DEFAULT_HEADERS and sending no headers
+ * at all, and the final error reports which variant each attempt used
+ * plus a snippet of ESPN's response body. That gives the next sync_log
+ * row enough signal to tell us which header strategy (if either) actually
+ * works, instead of guessing.
  */
 export async function fetchJson<T = unknown>(
   url: string,
@@ -40,16 +48,24 @@ export async function fetchJson<T = unknown>(
 
   let lastErr: unknown;
   for (let attempt = 1; attempt <= retries; attempt++) {
+    const useHeaders = attempt % 2 === 1; // alternate: with, without, with, ...
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(url, {
         signal: controller.signal,
-        headers: DEFAULT_HEADERS,
+        headers: useHeaders ? DEFAULT_HEADERS : undefined,
       });
       clearTimeout(timer);
       if (!res.ok) {
-        throw new Error(`ESPN fetch ${url} -> HTTP ${res.status}`);
+        const bodySnippet = await res
+          .text()
+          .then((t) => t.slice(0, 300))
+          .catch(() => "<unreadable body>");
+        throw new Error(
+          `ESPN fetch ${url} -> HTTP ${res.status} ` +
+            `(headers=${useHeaders ? "browser" : "none"}) body: ${bodySnippet}`,
+        );
       }
       return (await res.json()) as T;
     } catch (err) {
