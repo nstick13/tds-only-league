@@ -10,6 +10,18 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_RETRIES = 3; // total attempts, not extra retries
 const RETRY_BASE_DELAY_MS = 500;
 
+// ESPN's undocumented site API 403s server-side callers that don't look
+// like a browser (no User-Agent, datacenter IP). Deno's default fetch sends
+// no UA, so from Supabase Edge Functions every request was coming back 403.
+// Send a browser-like UA + Accept so ESPN serves us normally.
+const DEFAULT_HEADERS: Record<string, string> = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  Accept: "application/json, text/plain, */*",
+  "Accept-Language": "en-US,en;q=0.9",
+};
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -31,7 +43,10 @@ export async function fetchJson<T = unknown>(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(url, { signal: controller.signal });
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: DEFAULT_HEADERS,
+      });
       clearTimeout(timer);
       if (!res.ok) {
         throw new Error(`ESPN fetch ${url} -> HTTP ${res.status}`);
