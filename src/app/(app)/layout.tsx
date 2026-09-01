@@ -63,9 +63,13 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           </nav>
 
           <div className="flex items-center gap-3">
-            <span className="font-mono text-base text-retro-offwhite hidden sm:inline">
+            <Link
+              href="/settings"
+              className="font-mono text-base text-retro-offwhite hover:text-retro-yellow underline decoration-transparent hover:decoration-current hidden sm:inline"
+              title="Settings — change your display name"
+            >
               {displayName}
-            </span>
+            </Link>
             <form action="/auth/sign-out" method="post">
               <PixelButton variant="secondary" type="submit" className="!px-3 !py-2 text-[10px]">
                 Sign Out

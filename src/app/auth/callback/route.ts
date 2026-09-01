@@ -27,13 +27,38 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
+      // First-time sign-ins land on settings to pick a display name. We
+      // detect "new" by a freshly-created profile row (the DB trigger
+      // creates it on first auth); returning managers go straight to `next`.
+      let dest = next;
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (user) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("created_at")
+            .eq("id", user.id)
+            .maybeSingle();
+          if (
+            profile?.created_at &&
+            Date.now() - new Date(profile.created_at).getTime() < 120_000
+          ) {
+            dest = "/settings?welcome=1";
+          }
+        }
+      } catch {
+        // Non-fatal — fall back to the default destination.
+      }
+
       const forwardedHost = request.headers.get("x-forwarded-host");
       const isLocalEnv = process.env.NODE_ENV === "development";
 
       if (!isLocalEnv && forwardedHost) {
-        return NextResponse.redirect(`https://${forwardedHost}${next}`);
+        return NextResponse.redirect(`https://${forwardedHost}${dest}`);
       }
-      return NextResponse.redirect(`${origin}${next}`);
+      return NextResponse.redirect(`${origin}${dest}`);
     }
   }
 

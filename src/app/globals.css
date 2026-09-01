@@ -15,8 +15,8 @@ body {
 }
 
 body {
-  background-color: #0a0e27;
-  color: #f4f1de;
+  background-color: #0f5132;
+  color: #fbf8ef;
   font-family: var(--font-vt323), monospace;
   font-size: 20px;
   line-height: 1.4;
@@ -39,15 +39,15 @@ h4,
 
 /* Chunky hard borders + focus states consistent with the NES aesthetic. */
 * {
-  outline-color: #ffd60a;
+  outline-color: #ffdd00;
 }
 
 :focus-visible {
-  outline: 2px solid #ffd60a;
+  outline: 2px solid #ffdd00;
   outline-offset: 2px;
 }
 
 ::selection {
-  background: #ffd60a;
-  color: #0a0e27;
+  background: #ffdd00;
+  color: #0f5132;
 }

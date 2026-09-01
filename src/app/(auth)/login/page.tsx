@@ -49,11 +49,11 @@ function LoginForm() {
 
   return (
     <PixelPanel raised className="w-full max-w-sm flex flex-col gap-6">
-      <h1 className="font-pixel text-lg text-retro-yellow">Sign In</h1>
+      <h1 className="font-pixel text-lg text-retro-yellow">Sign Up</h1>
 
       <p className="font-mono text-lg text-retro-offwhite">
-        TD&apos;s Only is invite-only for the league&apos;s 8 managers. Sign in
-        with your Google account to get your seat.
+        Sign up with your Google account to claim your manager seat. Already
+        signed up? This same button logs you back in.
       </p>
 
       {error ? (
@@ -61,7 +61,7 @@ function LoginForm() {
       ) : null}
 
       <PixelButton type="button" onClick={signInWithGoogle} disabled={loading}>
-        {loading ? "Redirecting..." : "Sign in with Google"}
+        {loading ? "Redirecting..." : "Sign up with Google"}
       </PixelButton>
     </PixelPanel>
   );

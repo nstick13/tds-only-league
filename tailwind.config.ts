@@ -8,19 +8,21 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Scoreboard background tones
+        // Gridiron background tones — a night-game football field. Kept
+        // dark enough that offwhite/yellow text stays high-contrast and
+        // dark text on the yellow buttons still reads.
         field: {
-          DEFAULT: "#0a0e27", // deep navy/black background
-          dark: "#05070f",
-          light: "#141a3d",
+          DEFAULT: "#0f5132", // rich turf green (app background)
+          dark: "#07301d", // end-zone shadow (nav/header, deep panels)
+          light: "#178a4c", // brighter grass (cards/panels)
         },
-        // NES-style saturated accents
+        // NES-style saturated accents — brightened for readability.
         retro: {
-          red: "#e63946",
-          blue: "#1d4ed8",
-          yellow: "#ffd60a",
-          green: "#2ec4b6",
-          offwhite: "#f4f1de",
+          red: "#ff5a5f",
+          blue: "#4f8cff",
+          yellow: "#ffdd00",
+          green: "#7bffa3",
+          offwhite: "#fbf8ef",
         },
       },
       fontFamily: {
