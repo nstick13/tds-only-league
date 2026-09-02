@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { PixelPanel } from "@/components/ui/PixelPanel";
 import { PixelButton } from "@/components/ui/PixelButton";
 import { Badge } from "@/components/ui/Badge";
-import { openSeasonAction, finalizeAndAdvanceAction } from "@/app/(app)/commish/actions";
+import { openSeasonAction, finalizeAndAdvanceAction, resetDraftAction } from "@/app/(app)/commish/actions";
 import type { Stage, Profile } from "@/lib/types";
 
 const STATUS_LABEL: Record<Stage["status"], string> = {
@@ -21,10 +21,6 @@ interface SeasonControlProps {
   currentStage: Stage | null;
 }
 
-/**
- * Season control: open the Week 1 draft, then finalize-and-advance each
- * stage in turn — the core weekly-redraft loop.
- */
 export function SeasonControl({ stages, managers, currentStage }: SeasonControlProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -37,9 +33,19 @@ export function SeasonControl({ stages, managers, currentStage }: SeasonControlP
     .filter((s) => s.status !== "upcoming" && s.status !== "finalized")
     .sort((a, b) => a.ordinal - b.ordinal);
 
+  const resettableStages = stages
+    .filter((s) => s.status !== "upcoming")
+    .sort((a, b) => a.ordinal - b.ordinal);
+
   const [selectedStageId, setSelectedStageId] = useState<number | "">(
     currentStage?.id ?? finalizableStages[0]?.id ?? "",
   );
+
+  const [resetStageId, setResetStageId] = useState<number | "">(
+    resettableStages[0]?.id ?? "",
+  );
+
+  const [confirmingReset, setConfirmingReset] = useState(false);
 
   function handleOpenSeason() {
     setMessage(null);
@@ -55,6 +61,21 @@ export function SeasonControl({ stages, managers, currentStage }: SeasonControlP
     setMessage(null);
     startTransition(async () => {
       const result = await finalizeAndAdvanceAction(selectedStageId);
+      setMessage({ text: result.message, ok: result.success });
+      if (result.success) router.refresh();
+    });
+  }
+
+  function handleReset() {
+    if (resetStageId === "") return;
+    if (!confirmingReset) {
+      setConfirmingReset(true);
+      return;
+    }
+    setMessage(null);
+    setConfirmingReset(false);
+    startTransition(async () => {
+      const result = await resetDraftAction(resetStageId);
       setMessage({ text: result.message, ok: result.success });
       if (result.success) router.refresh();
     });
@@ -84,10 +105,10 @@ export function SeasonControl({ stages, managers, currentStage }: SeasonControlP
       <div className="flex flex-wrap items-center gap-3">
         <PixelButton
           onClick={handleOpenSeason}
-          disabled={isPending || seasonOpened || managers.length !== 8}
+          disabled={isPending || seasonOpened || managers.length < 1}
           title={
-            managers.length !== 8
-              ? "Need 8 seated managers first (see Manager Admin below)"
+            managers.length < 1
+              ? "Need at least 1 seated manager (see Manager Admin below)"
               : undefined
           }
         >
@@ -96,6 +117,10 @@ export function SeasonControl({ stages, managers, currentStage }: SeasonControlP
         {seasonOpened ? (
           <span className="font-mono text-sm text-retro-offwhite/60">
             Season already opened.
+          </span>
+        ) : managers.length > 0 && managers.length < 8 ? (
+          <span className="font-mono text-sm text-retro-yellow">
+            {managers.length}/8 managers — OK for a test run
           </span>
         ) : null}
       </div>
@@ -130,6 +155,50 @@ export function SeasonControl({ stages, managers, currentStage }: SeasonControlP
           >
             Finalize &amp; Advance
           </PixelButton>
+        </div>
+      </div>
+
+      <div className="border-t-2 border-retro-offwhite/30 pt-4 flex flex-col gap-3">
+        <h3 className="font-pixel text-xs text-retro-offwhite">Reset Stage</h3>
+        <p className="font-mono text-sm text-retro-offwhite/70">
+          Wipes all picks, draft order, and results for a stage and sets it back to
+          &quot;upcoming.&quot; Use this to clean up after a test draft.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <select
+            className="font-mono text-base bg-field border-2 border-retro-offwhite text-retro-offwhite px-2 py-2"
+            value={resetStageId}
+            onChange={(e) => {
+              setResetStageId(Number(e.target.value));
+              setConfirmingReset(false);
+            }}
+            disabled={resettableStages.length === 0}
+          >
+            {resettableStages.length === 0 ? (
+              <option value="">No stage to reset</option>
+            ) : (
+              resettableStages.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({STATUS_LABEL[s.status]})
+                </option>
+              ))
+            )}
+          </select>
+          <PixelButton
+            variant="danger"
+            onClick={handleReset}
+            disabled={isPending || resetStageId === ""}
+          >
+            {confirmingReset ? "Confirm Reset" : "Reset Stage"}
+          </PixelButton>
+          {confirmingReset ? (
+            <button
+              className="font-mono text-sm text-retro-offwhite/60 underline"
+              onClick={() => setConfirmingReset(false)}
+            >
+              Cancel
+            </button>
+          ) : null}
         </div>
       </div>
 

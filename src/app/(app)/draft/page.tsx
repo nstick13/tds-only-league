@@ -4,6 +4,7 @@ import {
   getCurrentStage,
   getDraftOrder,
   getManagers,
+  getMyProfile,
   getPlayers,
   getRosterPicks,
 } from "@/lib/db";
@@ -63,9 +64,10 @@ export default async function DraftPage() {
     );
   }
 
-  const [draftOrder, players] = await Promise.all([
+  const [draftOrder, players, profile] = await Promise.all([
     getDraftOrder(stage.id),
     getPlayers(),
+    getMyProfile(),
   ]);
 
   return (
@@ -80,6 +82,7 @@ export default async function DraftPage() {
         managers={managers}
         allPlayers={players}
         currentUserId={user?.id ?? null}
+        isCommissioner={profile?.is_commissioner ?? false}
       />
     </div>
   );

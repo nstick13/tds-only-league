@@ -8,7 +8,8 @@ import { computeCurrentPick } from "@/components/draft/draftLogic";
 import { DraftOrderStrip } from "@/components/draft/DraftOrderStrip";
 import { PlayerPool } from "@/components/draft/PlayerPool";
 import { TeamRosters } from "@/components/draft/TeamRosters";
-import { draftPlayer } from "@/app/(app)/draft/actions";
+import { draftPlayer, undoPick } from "@/app/(app)/draft/actions";
+import { PixelButton } from "@/components/ui/PixelButton";
 
 export interface DraftBoardProps {
   stageId: number;
@@ -17,14 +18,9 @@ export interface DraftBoardProps {
   managers: Profile[];
   allPlayers: Player[];
   currentUserId: string | null;
+  isCommissioner?: boolean;
 }
 
-/**
- * Client orchestrator for the live draft room: owns the draft_order /
- * roster_picks state, subscribes to realtime changes on both tables (see
- * src/lib/realtime.ts subscribeToDraft), and renders the on-the-clock
- * strip, the available player pool, and every manager's roster-in-progress.
- */
 export function DraftBoard({
   stageId,
   initialDraftOrder,
@@ -32,6 +28,7 @@ export function DraftBoard({
   managers,
   allPlayers,
   currentUserId,
+  isCommissioner = false,
 }: DraftBoardProps) {
   const [draftOrder, setDraftOrder] = useState(initialDraftOrder);
   const [picks, setPicks] = useState(initialPicks);
@@ -39,12 +36,6 @@ export function DraftBoard({
   const [draftingPlayerId, setDraftingPlayerId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  // NOTE: src/lib/db/roster.ts and draftOrder.ts export *Client variants
-  // (getRosterPicksClient / getDraftOrderClient), but those files also
-  // import the server Supabase client (next/headers) at module scope, so
-  // pulling them into a "use client" bundle breaks the build. Query the
-  // same tables directly with the browser client here instead — same
-  // shape, same RLS (select-authenticated on both tables).
   const refreshPicks = useCallback(async () => {
     try {
       const supabase = createClient();
@@ -56,8 +47,7 @@ export function DraftBoard({
       if (error) throw error;
       setPicks((data ?? []) as RosterPick[]);
     } catch {
-      // Realtime refresh best-effort — a stale view will self-correct on
-      // the next event or page reload.
+      // Best-effort
     }
   }, [stageId]);
 
@@ -72,7 +62,7 @@ export function DraftBoard({
       if (error) throw error;
       setDraftOrder((data ?? []) as DraftOrderRow[]);
     } catch {
-      // Best-effort, see refreshPicks.
+      // Best-effort
     }
   }, [stageId]);
 
@@ -105,11 +95,18 @@ export function DraftBoard({
     [draftOrder, picks.length],
   );
 
-  const isMyTurn = currentUserId !== null && onTheClockId === currentUserId;
+  // In commissioner override mode, the commissioner can always pick
+  // (for whoever is on the clock). Otherwise, only when it's their turn.
+  const useOverride = isCommissioner && onTheClockId !== currentUserId;
+  const isMyTurn = currentUserId !== null && (onTheClockId === currentUserId || useOverride);
 
-  const myPicks = useMemo(
-    () => picks.filter((p) => p.manager_id === currentUserId),
-    [picks, currentUserId],
+  // For slot-full checks: use the on-the-clock manager's picks when
+  // commissioner is overriding, otherwise the current user's own picks.
+  const activeManagerId = useOverride ? onTheClockId : currentUserId;
+
+  const activePicks = useMemo(
+    () => picks.filter((p) => p.manager_id === activeManagerId),
+    [picks, activeManagerId],
   );
 
   const handleDraft = useCallback(
@@ -121,22 +118,39 @@ export function DraftBoard({
           stageId,
           playerId: player.id,
           slotPosition: player.position,
+          commissionerOverride: useOverride,
         });
         setDraftingPlayerId(null);
         if (!result.ok) {
           setError(result.error ?? "Could not draft that player.");
         } else {
-          // Optimistic local refresh in addition to the realtime event, so
-          // the drafter sees their own pick instantly.
           refreshPicks();
         }
       });
     },
-    [stageId, refreshPicks],
+    [stageId, refreshPicks, useOverride],
   );
+
+  const handleUndo = useCallback(() => {
+    setError(null);
+    startTransition(async () => {
+      const result = await undoPick(stageId, useOverride || isCommissioner);
+      if (!result.ok) {
+        setError(result.error ?? "Could not undo pick.");
+      } else {
+        refreshPicks();
+      }
+    });
+  }, [stageId, refreshPicks, useOverride, isCommissioner]);
 
   return (
     <div className="flex flex-col gap-4">
+      {isCommissioner && useOverride ? (
+        <div className="border-2 border-retro-yellow bg-field-light px-3 py-2 font-mono text-base text-retro-yellow text-center">
+          Commissioner mode — picking for {managers.find((m) => m.id === onTheClockId)?.display_name ?? "manager"}
+        </div>
+      ) : null}
+
       <DraftOrderStrip
         draftOrder={draftOrder}
         managers={managers}
@@ -150,12 +164,25 @@ export function DraftBoard({
         </div>
       ) : null}
 
+      {picks.length > 0 && isCommissioner ? (
+        <div className="flex justify-end">
+          <PixelButton
+            variant="secondary"
+            className="!px-3 !py-2 !text-[10px]"
+            onClick={handleUndo}
+            disabled={isPending}
+          >
+            Undo Last Pick
+          </PixelButton>
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         <PlayerPool
           players={pool}
           isMyTurn={isMyTurn && !isPending}
-          myPicks={myPicks}
-          myManagerId={currentUserId}
+          myPicks={activePicks}
+          myManagerId={activeManagerId}
           onDraft={handleDraft}
           draftingPlayerId={draftingPlayerId}
         />

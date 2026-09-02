@@ -93,10 +93,10 @@ export async function openSeasonAction(): Promise<ActionResult> {
   }
 
   const managers = await getManagers();
-  if (managers.length !== 8) {
+  if (managers.length < 1) {
     return {
       success: false,
-      message: `Need exactly 8 seated managers to open the draft (currently ${managers.length}). Assign manager_slot 1-8 to 8 profiles first.`,
+      message: "Need at least 1 seated manager to open the draft. Assign a manager_slot first.",
     };
   }
 
@@ -116,7 +116,10 @@ export async function openSeasonAction(): Promise<ActionResult> {
   revalidatePath("/commish");
   revalidatePath("/draft");
   revalidatePath("/");
-  return { success: true, message: `${firstStage.name} draft opened — order randomized.`, data: undefined };
+  const warning = managers.length < 8
+    ? ` (${managers.length}/8 managers seated — fine for testing, but you'll want all 8 for the real thing)`
+    : "";
+  return { success: true, message: `${firstStage.name} draft opened — order randomized.${warning}`, data: undefined };
 }
 
 /**
@@ -416,4 +419,53 @@ export async function triggerSyncAction(source: SyncSourceTrigger): Promise<Acti
       message: `Couldn't reach ${fnName} — it may not be deployed yet. See supabase/functions/README.md.`,
     };
   }
+}
+
+/**
+ * Resets a stage back to "upcoming": deletes all roster_picks and
+ * draft_order rows for the stage, then flips its status. Use this to
+ * clean up after a test draft so the real one starts fresh.
+ */
+export async function resetDraftAction(stageId: number): Promise<ActionResult> {
+  const commish = await requireCommissioner();
+  if (!commish) return { success: false, message: "Commissioner access required." };
+
+  const stage = await getStageById(stageId);
+  if (!stage) return { success: false, message: "Stage not found." };
+  if (stage.status === "upcoming") {
+    return { success: false, message: `${stage.name} is already in upcoming state.` };
+  }
+
+  const supabase = await createClient();
+
+  const { error: picksError } = await supabase
+    .from("roster_picks")
+    .delete()
+    .eq("stage_id", stageId);
+  if (picksError) return { success: false, message: friendlyDbError(picksError.message) };
+
+  const { error: orderError } = await supabase
+    .from("draft_order")
+    .delete()
+    .eq("stage_id", stageId);
+  if (orderError) return { success: false, message: friendlyDbError(orderError.message) };
+
+  const { error: resultsError } = await supabase
+    .from("weekly_results")
+    .delete()
+    .eq("stage_id", stageId);
+  if (resultsError) return { success: false, message: friendlyDbError(resultsError.message) };
+
+  const { error: statusError } = await supabase
+    .from("stages")
+    .update({ status: "upcoming" })
+    .eq("id", stageId);
+  if (statusError) return { success: false, message: friendlyDbError(statusError.message) };
+
+  revalidatePath("/commish");
+  revalidatePath("/draft");
+  revalidatePath("/standings");
+  revalidatePath("/history");
+  revalidatePath("/");
+  return { success: true, message: `${stage.name} reset to upcoming — all picks and draft order cleared.`, data: undefined };
 }

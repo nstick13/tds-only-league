@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getStageById } from "@/lib/db/stages";
 import { getDraftOrder } from "@/lib/db/draftOrder";
 import { getRosterPicks } from "@/lib/db/roster";
+import { getMyProfile } from "@/lib/db/profiles";
 import type { Player, Position } from "@/lib/types";
 import {
   computeCurrentPick,
@@ -22,31 +23,21 @@ export interface DraftPlayerInput {
   stageId: number;
   playerId: string;
   slotPosition: Position;
+  commissionerOverride?: boolean;
 }
 
 /**
- * Drafts a player onto the signed-in manager's roster for a stage.
+ * Drafts a player onto a manager's roster for a stage.
  *
- * Runs as the logged-in user (RLS applies), and re-validates every rule
- * server-side before attempting the insert — a client can't be trusted to
- * have fresh data, and the client-side checks in the draft board are only
- * for instant UI feedback:
- *   1. stage.status === 'draft_open'
- *   2. it is this user's turn (recomputed from draft_order + live pick
- *      count, not trusted from the client)
- *   3. slotPosition matches the player's actual position
- *   4. player is draftable (not on_bye, not a hard-out status)
- *   5. the manager's slot for that position isn't already full
- *
- * The DB is still the final backstop: roster_picks_stage_player_unique
- * (exclusive pool) and the enforce_roster_limits() trigger (roster caps)
- * catch any race the above misses — those Postgres errors are translated
- * into friendly messages below.
+ * Normally the pick is attributed to the signed-in user and it must be
+ * their turn. When `commissionerOverride` is true the caller must be a
+ * commissioner, and the pick is attributed to whoever is on the clock —
+ * this lets a commissioner solo-test a draft without 8 real people.
  */
 export async function draftPlayer(
   input: DraftPlayerInput,
 ): Promise<DraftActionResult> {
-  const { stageId, playerId, slotPosition } = input;
+  const { stageId, playerId, slotPosition, commissionerOverride } = input;
   const supabase = await createClient();
 
   const {
@@ -54,6 +45,13 @@ export async function draftPlayer(
   } = await supabase.auth.getUser();
   if (!user) {
     return { ok: false, error: "You must be signed in to draft." };
+  }
+
+  if (commissionerOverride) {
+    const profile = await getMyProfile();
+    if (!profile?.is_commissioner) {
+      return { ok: false, error: "Commissioner access required for override." };
+    }
   }
 
   const stage = await getStageById(stageId);
@@ -77,7 +75,10 @@ export async function draftPlayer(
   if (pickNumber === null) {
     return { ok: false, error: "The draft is already complete for this stage." };
   }
-  if (onTheClockId !== user.id) {
+
+  const pickForManagerId = commissionerOverride ? onTheClockId! : user.id;
+
+  if (!commissionerOverride && onTheClockId !== user.id) {
     return { ok: false, error: "It is not your turn to pick." };
   }
 
@@ -109,13 +110,13 @@ export async function draftPlayer(
     return { ok: false, error: "That player was just taken." };
   }
 
-  if (isSlotFull(picks, user.id, slotPosition)) {
-    return { ok: false, error: `Your ${slotPosition} slot is already full.` };
+  if (isSlotFull(picks, pickForManagerId, slotPosition)) {
+    return { ok: false, error: `${slotPosition} slot is already full for that manager.` };
   }
 
   const { error: insertError } = await supabase.from("roster_picks").insert({
     stage_id: stageId,
-    manager_id: user.id,
+    manager_id: pickForManagerId,
     player_id: playerId,
     slot_position: slotPosition,
     pick_number: pickNumber,
@@ -131,13 +132,14 @@ export async function draftPlayer(
 }
 
 /**
- * Removes the signed-in manager's own most recent pick in a stage, while
- * the draft is still open. RLS (roster_picks_delete_own_while_open)
- * already restricts this to the caller's own rows and only while
- * draft_open — this action just picks the right row (the manager's
- * highest pick_number) and revalidates.
+ * Removes the most recent pick in a stage. Non-commissioners can only
+ * undo their own picks while the draft is open; commissioners can undo
+ * any manager's last pick (for test-draft cleanup).
  */
-export async function undoPick(stageId: number): Promise<DraftActionResult> {
+export async function undoPick(
+  stageId: number,
+  commissionerOverride?: boolean,
+): Promise<DraftActionResult> {
   const supabase = await createClient();
 
   const {
@@ -145,6 +147,13 @@ export async function undoPick(stageId: number): Promise<DraftActionResult> {
   } = await supabase.auth.getUser();
   if (!user) {
     return { ok: false, error: "You must be signed in." };
+  }
+
+  if (commissionerOverride) {
+    const profile = await getMyProfile();
+    if (!profile?.is_commissioner) {
+      return { ok: false, error: "Commissioner access required for override." };
+    }
   }
 
   const stage = await getStageById(stageId);
@@ -155,25 +164,30 @@ export async function undoPick(stageId: number): Promise<DraftActionResult> {
     return { ok: false, error: "The draft is not open for this stage." };
   }
 
-  const { data: myPicks, error: myPicksError } = await supabase
+  let query = supabase
     .from("roster_picks")
     .select("*")
     .eq("stage_id", stageId)
-    .eq("manager_id", user.id)
     .order("pick_number", { ascending: false })
     .limit(1);
 
-  if (myPicksError) {
-    return { ok: false, error: myPicksError.message };
+  if (!commissionerOverride) {
+    query = query.eq("manager_id", user.id);
   }
-  if (!myPicks || myPicks.length === 0) {
-    return { ok: false, error: "You have no picks to undo." };
+
+  const { data: targetPicks, error: picksError } = await query;
+
+  if (picksError) {
+    return { ok: false, error: picksError.message };
+  }
+  if (!targetPicks || targetPicks.length === 0) {
+    return { ok: false, error: "No picks to undo." };
   }
 
   const { error: deleteError } = await supabase
     .from("roster_picks")
     .delete()
-    .eq("id", myPicks[0].id);
+    .eq("id", targetPicks[0].id);
 
   if (deleteError) {
     return { ok: false, error: deleteError.message };
@@ -190,7 +204,7 @@ function friendlyInsertError(message: string): string {
   }
   if (message.includes("Roster limit exceeded")) {
     return message.includes("already holds 6 players")
-      ? "Your roster is already full."
+      ? "Roster is already full."
       : "That position slot is already full.";
   }
   return `Could not draft player: ${message}`;
