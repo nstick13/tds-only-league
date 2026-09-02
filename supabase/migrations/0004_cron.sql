@@ -55,32 +55,19 @@
 -- Fri (dow 0,1,2,5). Monday Night Football is covered by the Tuesday leg —
 -- do not drop it, MNF is a weekly regular-season fixture.
 --
--- BEFORE YOU RUN THIS — fill in two placeholders below
+-- BEFORE YOU RUN THIS — edit exactly ONE line
 -- ----------------------------------------------------------------------------
--- 1. <PROJECT_REF> — your Supabase project ref (Studio -> Project Settings
---    -> General -> Reference ID), used to build the Edge Function URL:
---      https://<PROJECT_REF>.supabase.co/functions/v1/<function-name>
--- 2. <SERVICE_ROLE_KEY> — your project's service_role key (Studio ->
---    Project Settings -> API -> service_role secret). This is sent as a
---    Bearer token so the request passes Edge Functions' JWT check AND so
---    the function itself has the service-role env vars it needs — the key
---    used here is unrelated to (does not set) the function's own
---    SUPABASE_SERVICE_ROLE_KEY secret; that's set separately via
---    `supabase secrets set` (see supabase/functions/README.md).
+-- Set v_key in the DO block below to your service_role key (Studio -> Project
+-- Settings -> API -> service_role "secret"). The project ref is already filled
+-- in: it is public, it is literally in your Supabase URL.
 --
--- These are SECRETS. Do not commit a filled-in copy of this file. The
--- recommended flow is: paste this file into the Supabase Studio SQL
--- editor, hand-edit the two placeholders there (not in git), and run it
--- once. Re-running is safe (see idempotency note below).
+-- This file used to carry <PROJECT_REF>/<SERVICE_ROLE_KEY> placeholders in
+-- twelve separate places, which meant a missed one scheduled a job that
+-- failed at runtime with "Bad hostname" rather than failing here. Now the
+-- values are declared once and the job commands are built with format(), so
+-- there is a single thing to edit and a guard that refuses to run without it.
 --
--- If pg_cron/pg_net are fiddly on your plan (they need to be enabled as
--- extensions, and some plans/tiers restrict pg_cron), the SIMPLER
--- ALTERNATIVE is the Supabase Dashboard's own Edge Functions scheduler:
---   Studio -> Edge Functions -> select a function -> "Cron" tab -> set an
---   interval (e.g. "*/20 * * * *"). No SQL required, no secrets pasted
---   into the SQL editor, and Supabase manages the auth token for you. This
---   file is here for teams who prefer everything as reviewable/rerunnable
---   SQL, or whose plan doesn't expose the dashboard scheduler.
+-- Still a SECRET: do not commit a filled-in copy of this file.
 -- ============================================================================
 
 -- Required extensions (available on Supabase; safe if already enabled).
@@ -112,121 +99,75 @@ exception
 end $$;
 
 -- ----------------------------------------------------------------------------
--- sync-players — every 6 hours (~3 paginated calls per run; see CALL BUDGET above)
+-- Schedule every job from one place, with the URL/key substituted once.
+--
+-- Cadences (see CALL BUDGET above):
+--   sync-players   every 6h
+--   sync-schedule  every 12h
+--   sync-scores    every 30 min inside the UTC game-day windows, split into
+--                  three jobs because the windows are not expressible as a
+--                  single cron expression
+--   apply-locks    every 5 min (DB-only, costs no API quota)
 -- ----------------------------------------------------------------------------
-select cron.schedule(
-  'tdsonly-sync-players',
-  '0 */6 * * *',
-  $$
-  select net.http_post(
-    url := 'https://<PROJECT_REF>.supabase.co/functions/v1/sync-players',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'Authorization', 'Bearer <SERVICE_ROLE_KEY>'
-    ),
-    body := '{}'::jsonb
-  );
-  $$
-);
+do $$
+declare
+  v_ref text := '<PROJECT_REF>';
+  v_key text := '<SERVICE_ROLE_KEY>';
+  v_job record;
+  v_cmd text;
+begin
+  if v_key like '<%>' or length(v_key) < 40 then
+    raise exception
+      'Set v_key to your real service_role key before running this file.';
+  end if;
+  if v_ref like '<%>' then
+    raise exception 'Set v_ref to your Supabase project ref before running this file.';
+  end if;
 
--- ----------------------------------------------------------------------------
--- sync-schedule — every 12 hours (kickoff times/byes change rarely)
--- ----------------------------------------------------------------------------
-select cron.schedule(
-  'tdsonly-sync-schedule',
-  '30 */12 * * *',
-  $$
-  select net.http_post(
-    url := 'https://<PROJECT_REF>.supabase.co/functions/v1/sync-schedule',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'Authorization', 'Bearer <SERVICE_ROLE_KEY>'
-    ),
-    body := '{}'::jsonb
-  );
-  $$
-);
+  for v_job in
+    select *
+    from (values
+      ('tdsonly-sync-players',        '0 */6 * * *',            'sync-players'),
+      ('tdsonly-sync-schedule',       '30 */12 * * *',          'sync-schedule'),
+      -- Night games land on the NEXT UTC day: Fri=TNF, Sun=Sat night,
+      -- Mon=SNF, Tue=MNF. Do not drop the Tuesday leg.
+      ('tdsonly-sync-scores-night',   '*/30 0-4 * * 0,1,2,5',   'sync-scores'),
+      ('tdsonly-sync-scores-saturday','*/30 17-23 * * 6',       'sync-scores'),
+      -- 13:00 UTC start catches 9:30am ET London games.
+      ('tdsonly-sync-scores-sunday',  '*/30 13-23 * * 0',       'sync-scores'),
+      ('tdsonly-apply-locks',         '*/5 * * * *',            'apply-locks')
+    ) as t(jobname, schedule, fn)
+  loop
+    v_cmd := format(
+      $cmd$
+      select net.http_post(
+        url := %L,
+        headers := jsonb_build_object(
+          'Content-Type', 'application/json',
+          'Authorization', %L
+        ),
+        body := '{}'::jsonb
+      );
+      $cmd$,
+      format('https://%s.supabase.co/functions/v1/%s', v_ref, v_job.fn),
+      'Bearer ' || v_key
+    );
 
--- ----------------------------------------------------------------------------
--- sync-scores — every 30 minutes, GAME-DAY WINDOWS ONLY (all times UTC).
--- Split into three jobs because the windows are not expressible as one cron
--- entry. See the GAME-DAY WINDOWS section at the top before editing these.
--- ----------------------------------------------------------------------------
-
--- Night games (all kick off in the evening ET, i.e. after 00:00 UTC the
--- FOLLOWING day). UTC dow 5=Fri covers Thursday Night Football, 0=Sun covers
--- Saturday night, 1=Mon covers Sunday Night Football, 2=Tue covers Monday
--- Night Football.
-select cron.schedule(
-  'tdsonly-sync-scores-night',
-  '*/30 0-4 * * 0,1,2,5',
-  $$
-  select net.http_post(
-    url := 'https://<PROJECT_REF>.supabase.co/functions/v1/sync-scores',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'Authorization', 'Bearer <SERVICE_ROLE_KEY>'
-    ),
-    body := '{}'::jsonb
-  );
-  $$
-);
-
--- Saturday afternoon/evening games (Weeks 15-18 and the playoffs).
-select cron.schedule(
-  'tdsonly-sync-scores-saturday',
-  '*/30 17-23 * * 6',
-  $$
-  select net.http_post(
-    url := 'https://<PROJECT_REF>.supabase.co/functions/v1/sync-scores',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'Authorization', 'Bearer <SERVICE_ROLE_KEY>'
-    ),
-    body := '{}'::jsonb
-  );
-  $$
-);
-
--- The Sunday slate. Starts at 13:00 UTC to catch London games (9:30am ET);
--- the Sunday-night spillover past midnight UTC is handled by the night job.
-select cron.schedule(
-  'tdsonly-sync-scores-sunday',
-  '*/30 13-23 * * 0',
-  $$
-  select net.http_post(
-    url := 'https://<PROJECT_REF>.supabase.co/functions/v1/sync-scores',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'Authorization', 'Bearer <SERVICE_ROLE_KEY>'
-    ),
-    body := '{}'::jsonb
-  );
-  $$
-);
-
--- ----------------------------------------------------------------------------
--- apply-locks — every 5 minutes
--- ----------------------------------------------------------------------------
-select cron.schedule(
-  'tdsonly-apply-locks',
-  '*/5 * * * *',
-  $$
-  select net.http_post(
-    url := 'https://<PROJECT_REF>.supabase.co/functions/v1/apply-locks',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'Authorization', 'Bearer <SERVICE_ROLE_KEY>'
-    ),
-    body := '{}'::jsonb
-  );
-  $$
-);
+    perform cron.schedule(v_job.jobname, v_job.schedule, v_cmd);
+    raise notice 'scheduled % (%)', v_job.jobname, v_job.schedule;
+  end loop;
+end $$;
 
 -- ----------------------------------------------------------------------------
 -- Verify: list scheduled jobs.
 -- ----------------------------------------------------------------------------
--- select jobname, schedule, active from cron.job where jobname like 'tdsonly-%';
+-- select jobname, schedule, active,
+--        command like '%<PROJECT_REF>%'      as still_has_ref_placeholder,
+--        command like '%<SERVICE_ROLE_KEY>%' as still_has_key_placeholder
+-- from cron.job where jobname like 'tdsonly-%' order by jobname;
+--
+-- NOTE: never `select command` from cron.job in the SQL editor — the job
+-- command contains your service_role key and would be printed in the results.
 --
 -- To check recent run results:
 -- select jobname, status, return_message, start_time
