@@ -67,5 +67,5 @@ Deno.test("unaddressedStageMessage names the stage and the fix", () => {
   );
   assert(msg.includes("Wild Card"));
   assert(msg.includes("19"));
-  assert(msg.includes("0005_tank01_stage_addressing.sql"));
+  assert(msg.includes("0006_tank01_stage_addressing.sql"));
 });

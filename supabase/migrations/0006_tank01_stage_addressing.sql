@@ -1,5 +1,5 @@
 -- ============================================================================
--- 0005_tank01_stage_addressing.sql
+-- 0006_tank01_stage_addressing.sql
 -- TD's Only League — re-address stages for the Tank01 API
 --
 -- WHY

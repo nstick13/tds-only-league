@@ -1,7 +1,8 @@
 # Handoff: migrating ESPN sync → Tank01 API
 
-Status as of this session: **decided, not started**. This doc is the
-handoff for whoever (human or a new Claude session) picks this up next.
+Status: **built, not yet deployed.** The code is on
+`claude/tank01-agent-deploy-ff7783`. What remains is deploying it and
+confirming one unknown (postseason week addressing) — see "What's left".
 
 ## Why we're moving off ESPN
 
@@ -38,9 +39,12 @@ migrating. But the plan is to migrate regardless.
   questions below) — could mean a hybrid: nflverse for rosters/schedule
   (saves Tank01 calls) + Tank01 only for `sync-scores`.
 
-## Blocked on
+## ~~Blocked on~~ RESOLVED — real responses captured
 
-**Real Tank01 API responses.** This sandbox can't reach `tank01.com` or
+Real responses for all five endpoints are now committed under
+`reference/tank01/*.sample.json`, trimmed but structurally untouched, and the
+parser tests assert directly against them. Original blocker, for the record:
+this sandbox can't reach `tank01.com` or
 `rapidapi.com` (both blocked by the environment's egress proxy), and
 web search couldn't turn up exact response JSON shapes (field names for
 team id, player id, injury status, and — critically — the per-game TD
@@ -162,3 +166,62 @@ don't discover it mid-migration.
 8. Re-test all three sync buttons on the commish page end-to-end
    (see `src/components/commish/SyncPanel.tsx`) and confirm `sync_log`
    shows real success rows before considering this done.
+
+
+---
+
+## What actually shipped
+
+Three findings from the real responses changed the plan:
+
+**The re-keying migration was unnecessary.** Tank01's `playerID` is byte-for-byte
+the ESPN athlete id — verified across a full 1,000-row page, zero mismatches,
+zero missing. `players.id` already holds the right values, so `roster_picks`
+and `player_stage_stats` needed no backfill and no mapping table. This was the
+scariest item in the original plan and it evaporated.
+
+**Byes are published, not derived.** `getNFLTeams` carries `byeWeeks` per team
+keyed by season year. The old code inferred a bye from a team's *absence* from
+the week's game list, which meant any short or failed schedule response
+silently benched real players. That class of bug is gone.
+
+**Injuries ride along with the player list**, so the separate injury endpoint
+is redundant, and the whole league arrives in ~3 paginated calls instead of 33.
+
+Call budget, against the Pro plan's 1,000/day:
+
+| Job | Before | After |
+| --- | --- | --- |
+| `sync-players` | 33 calls × 72 runs/day ≈ 2,376 | ~3 calls × 4 runs/day ≈ 12 |
+| `sync-schedule` | 48 runs/day | 2 runs/day × 2 calls |
+| `sync-scores` | 1 + 16 every run, all week | 1 + only games still live, game-day windows only |
+
+## What's left
+
+1. **Deploy.** `supabase db push` (or paste `0006` into the SQL editor), then
+   `supabase functions deploy` for the three sync jobs. `RAPIDAPI_KEY` is
+   already set.
+2. **Confirm postseason addressing.** The four playoff stages ship with
+   `season_type`/`week_num` NULL because no playoff response was ever
+   captured. Both jobs return 422 and log a `sync_log` error for them rather
+   than guessing a week. `0006_tank01_stage_addressing.sql` has the exact curl
+   and the four `UPDATE`s. This only matters before January.
+3. **Re-test the three commish sync buttons** end-to-end and confirm `sync_log`
+   shows real success rows (`src/components/commish/SyncPanel.tsx`).
+
+## Judgment calls worth knowing about
+
+- **Return TDs are not scored.** A rostered WR returning a punt for a
+  touchdown scores nothing, matching `scoring.ts` and the generated `points`
+  column. The data is available if the league ever wants to change that; it
+  would need `scoring.ts`, the DB generated column and `tdsFor()` changed
+  together.
+- **Free agents are excluded** from the player pool. They keep a stale
+  `teamID` in Tank01's data, so including them would show unsignable players
+  as rostered.
+- **`sync-scores` writes zeros**, not just scorers, so a TD credited live and
+  later reversed by a stat correction gets corrected rather than persisting.
+- **The "already ingested" watermark is stage-blind** because `sync_log`
+  records a source but not a stage. An explicit `stage_id` therefore bypasses
+  it — without that, a clean run for one week would silently no-op a
+  commissioner's re-run of an earlier week.

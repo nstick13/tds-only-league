@@ -206,7 +206,7 @@ unconfirmed. Those four `stages` rows therefore ship with `season_type` and
 `week_num` set to NULL, and `sync-schedule` / `sync-scores` return HTTP 422 and
 log a `sync_log` error for them rather than fetching a guessed week.
 
-`supabase/migrations/0005_tank01_stage_addressing.sql` contains the exact curl
+`supabase/migrations/0006_tank01_stage_addressing.sql` contains the exact curl
 to confirm the real values and the four `UPDATE` statements to finish the job.
 
 ## Scheduling

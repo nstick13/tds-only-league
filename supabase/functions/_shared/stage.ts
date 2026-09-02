@@ -19,7 +19,7 @@ export interface StageRow {
   /**
    * Tank01 getNFLGamesForWeek?seasonType= value, or null when this stage has
    * no confirmed addressing yet (the four postseason rows — see
-   * supabase/migrations/0005_tank01_stage_addressing.sql).
+   * supabase/migrations/0006_tank01_stage_addressing.sql).
    */
   season_type: string | null;
   /** Tank01 getNFLGamesForWeek?week= value, or null. See season_type. */
@@ -88,7 +88,7 @@ export function unaddressedStageMessage(stage: StageRow): string {
     `Stage "${stage.name}" (ordinal ${stage.ordinal}) has no Tank01 week ` +
     `addressing yet, so there is nothing to fetch. Confirm the playoff ` +
     `seasonType/week values against a real response and set season_type / ` +
-    `week_num — see supabase/migrations/0005_tank01_stage_addressing.sql.`
+    `week_num — see supabase/migrations/0006_tank01_stage_addressing.sql.`
   );
 }
 
