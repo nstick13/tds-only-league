@@ -104,7 +104,7 @@ export async function fetchTank01<T>(
       }
 
       const json = (await res.json()) as Tank01Envelope<T>;
-      if (json.body === undefined) {
+      if (json.body === undefined || json.body === null) {
         throw new Error(
           `Tank01 ${path} returned no body (statusCode=${json.statusCode}` +
             `${json.error ? `, error=${json.error}` : ""})`,
@@ -208,17 +208,33 @@ export async function getPlayerList(
   let token: string | undefined;
 
   for (let page = 0; page < maxPages; page++) {
-    const body = await fetchTank01<PlayerListBody>("getNFLPlayerList", {
-      nextToken: token,
-    });
-    const batch = body?.players ?? [];
+    const raw = await fetchTank01<PlayerListBody | Tank01Player[]>(
+      "getNFLPlayerList",
+      { nextToken: token },
+    );
+
+    // Tank01 may return the player array directly at body level (no
+    // { players, nextToken } wrapper) — handle both shapes.
+    let body: PlayerListBody;
+    if (Array.isArray(raw)) {
+      body = { players: raw };
+    } else {
+      body = raw ?? { players: [] };
+    }
+
+    const batch = body.players ?? [];
     if (batch.length === 0 && page === 0) {
+      const shape = raw === null ? "null" : typeof raw;
+      const keys = raw && typeof raw === "object" && !Array.isArray(raw)
+        ? Object.keys(raw).join(",")
+        : (Array.isArray(raw) ? `array[${raw.length}]` : "n/a");
       throw new Error(
-        "getNFLPlayerList returned zero players on the first page",
+        `getNFLPlayerList returned zero players on the first page ` +
+          `(body type=${shape}, keys=${keys})`,
       );
     }
     all.push(...batch);
-    token = body?.nextToken;
+    token = body.nextToken;
     if (!token) return all;
   }
   // Ran out of page budget with a cursor still outstanding: return what we
