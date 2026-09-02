@@ -9,6 +9,7 @@ import {
 } from "@/lib/db";
 import { PixelPanel } from "@/components/ui/PixelPanel";
 import { SeasonControl } from "@/components/commish/SeasonControl";
+import { DraftPickForManager } from "@/components/commish/DraftPickForManager";
 import { DraftOrderEditor } from "@/components/commish/DraftOrderEditor";
 import { RosterEditor } from "@/components/commish/RosterEditor";
 import { ManagerAdmin } from "@/components/commish/ManagerAdmin";
@@ -46,6 +47,10 @@ export default async function CommishPage() {
       </PixelPanel>
 
       <SeasonControl stages={stages} managers={managers} currentStage={currentStage} />
+
+      {currentStage?.status === "draft_open" ? (
+        <DraftPickForManager currentStage={currentStage} managers={managers} />
+      ) : null}
 
       <DraftOrderEditor stages={stages} managers={managers} />
 
