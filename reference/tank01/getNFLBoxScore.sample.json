@@ -1,0 +1,323 @@
+{
+ "_README": "TRIMMED. playerStats cut to 5 of ~90; allPlayByPlay/teamStats/lineScore/DST dropped. TD fields sync-scores needs: playerStats[playerID].Passing.passTD / .Rushing.rushTD / .Receiving.recTD (all STRINGS). Also present but NOT scored by this league: Defense.defTD, Kicking.kickReturnTD, Punting.puntReturnTD. gameStatus/gameStatusCode let us skip finalized games instead of re-polling them.",
+ "statusCode": 200,
+ "body": {
+  "gameID": "20241020_CAR@WSH",
+  "gameDate": "20241020",
+  "gameWeek": "Week 7",
+  "seasonType": "Regular Season",
+  "gameStatus": "Completed",
+  "gameStatusCode": "2",
+  "currentPeriod": "Final",
+  "home": "WSH",
+  "away": "CAR",
+  "teamIDHome": "32",
+  "teamIDAway": "5",
+  "homePts": "40",
+  "awayPts": "7",
+  "playerStats": {
+   "2576980": {
+    "gameID": "20241020_CAR@WSH",
+    "Rushing": {
+     "rushAvg": "3.1",
+     "rushYds": "34",
+     "carries": "11",
+     "longRush": "11",
+     "rushTD": "0"
+    },
+    "Passing": {
+     "qbr": "64.0",
+     "rtg": "132.8",
+     "sacked": "1-4",
+     "passAttempts": "23",
+     "passAvg": "8.9",
+     "passTD": "2",
+     "passYds": "205",
+     "int": "0",
+     "passCompletions": "18"
+    },
+    "scoringPlays": [
+     {
+      "score": "Zach Ertz 12 Yd pass from Marcus Mariota (Austin Seibert Kick)",
+      "scorePeriod": "Q2",
+      "homeScore": "27",
+      "awayScore": "0",
+      "teamID": "32",
+      "scoreDetails": "8 plays, 92 yards, 2:12",
+      "scoreType": "TD",
+      "scoreTime": "0:10",
+      "team": "WSH",
+      "playerIDs": [
+       "2576980",
+       "15835",
+       "3821683"
+      ]
+     },
+     {
+      "score": "Ben Sinnott 3 Yd pass from Marcus Mariota (Austin Seibert Kick)",
+      "scorePeriod": "Q3",
+      "homeScore": "34",
+      "awayScore": "0",
+      "teamID": "32",
+      "scoreDetails": "10 plays, 59 yards, 6:07",
+      "scoreType": "TD",
+      "scoreTime": "8:53",
+      "team": "WSH",
+      "playerIDs": [
+       "2576980",
+       "4690923",
+       "3821683"
+      ]
+     }
+    ],
+    "teamID": "32",
+    "snapCounts": {
+     "offSnapPct": "0.86",
+     "defSnap": "0",
+     "stSnap": "0",
+     "stSnapPct": "0.00",
+     "offSnap": "59",
+     "defSnapPct": "0.00"
+    },
+    "team": "WSH",
+    "teamAbv": "WSH",
+    "Defense": {
+     "fumblesLost": "0",
+     "defensiveInterceptions": "0",
+     "forcedFumbles": "0",
+     "fumbles": "0",
+     "fumblesRecovered": "1"
+    },
+    "playerID": "2576980",
+    "longName": "Marcus Mariota",
+    "fantasyPoints": "21.8",
+    "fantasyPointsDefault": {
+     "standard": "19.6",
+     "PPR": "19.6",
+     "halfPPR": "19.6"
+    }
+   },
+   "4241474": {
+    "gameID": "20241020_CAR@WSH",
+    "Rushing": {
+     "rushAvg": "5.9",
+     "rushYds": "71",
+     "carries": "12",
+     "longRush": "11",
+     "rushTD": "1"
+    },
+    "scoringPlays": [
+     {
+      "score": "Brian Robinson Jr. 8 Yd Run (Austin Seibert Kick)",
+      "scorePeriod": "Q2",
+      "homeScore": "17",
+      "awayScore": "0",
+      "teamID": "32",
+      "scoreDetails": "4 plays, 59 yards, 1:47",
+      "scoreType": "TD",
+      "scoreTime": "11:35",
+      "team": "WSH",
+      "playerIDs": [
+       "4241474",
+       "3821683"
+      ]
+     }
+    ],
+    "teamID": "32",
+    "snapCounts": {
+     "offSnapPct": "0.38",
+     "defSnap": "0",
+     "stSnap": "0",
+     "stSnapPct": "0.00",
+     "offSnap": "26",
+     "defSnapPct": "0.00"
+    },
+    "team": "WSH",
+    "teamAbv": "WSH",
+    "playerID": "4241474",
+    "longName": "Brian Robinson Jr.",
+    "fantasyPoints": "15.5",
+    "fantasyPointsDefault": {
+     "standard": "13.1",
+     "PPR": "13.1",
+     "halfPPR": "13.1"
+    }
+   },
+   "15835": {
+    "gameID": "20241020_CAR@WSH",
+    "Receiving": {
+     "receptions": "4",
+     "recTD": "1",
+     "longRec": "15",
+     "targets": "5",
+     "recYds": "40",
+     "recAvg": "10.0"
+    },
+    "scoringPlays": [
+     {
+      "score": "Zach Ertz 12 Yd pass from Marcus Mariota (Austin Seibert Kick)",
+      "scorePeriod": "Q2",
+      "homeScore": "27",
+      "awayScore": "0",
+      "teamID": "32",
+      "scoreDetails": "8 plays, 92 yards, 2:12",
+      "scoreType": "TD",
+      "scoreTime": "0:10",
+      "team": "WSH",
+      "playerIDs": [
+       "2576980",
+       "15835",
+       "3821683"
+      ]
+     }
+    ],
+    "teamID": "32",
+    "snapCounts": {
+     "offSnapPct": "0.58",
+     "defSnap": "0",
+     "stSnap": "0",
+     "stSnapPct": "0.00",
+     "offSnap": "40",
+     "defSnapPct": "0.00"
+    },
+    "team": "WSH",
+    "teamAbv": "WSH",
+    "playerID": "15835",
+    "longName": "Zach Ertz",
+    "fantasyPoints": "12.0",
+    "fantasyPointsDefault": {
+     "standard": "10.0",
+     "PPR": "14.0",
+     "halfPPR": "12.0"
+    }
+   },
+   "3068267": {
+    "gameID": "20241020_CAR@WSH",
+    "Rushing": {
+     "rushAvg": "4.3",
+     "rushYds": "17",
+     "carries": "4",
+     "longRush": "6",
+     "rushTD": "0"
+    },
+    "Receiving": {
+     "receptions": "2",
+     "recTD": "0",
+     "longRec": "3",
+     "targets": "2",
+     "recYds": "3",
+     "recAvg": "1.5"
+    },
+    "teamID": "32",
+    "snapCounts": {
+     "offSnapPct": "0.41",
+     "defSnap": "0",
+     "stSnap": "2",
+     "stSnapPct": "0.08",
+     "offSnap": "28",
+     "defSnapPct": "0.00"
+    },
+    "Kicking": {
+     "kickReturns": "1",
+     "kickReturnTD": "0",
+     "kickReturnYds": "34",
+     "kickReturnAvg": "34.0",
+     "kickReturnLong": "34"
+    },
+    "team": "WSH",
+    "teamAbv": "WSH",
+    "playerID": "3068267",
+    "longName": "Austin Ekeler",
+    "fantasyPoints": "3.8",
+    "fantasyPointsDefault": {
+     "standard": "2.0",
+     "PPR": "4.0",
+     "halfPPR": "3.0"
+    }
+   },
+   "2980100": {
+    "gameID": "20241020_CAR@WSH",
+    "scoringPlays": [
+     {
+      "score": "Dante Fowler Jr. 67 Yd Interception Return (Austin Seibert Kick)",
+      "scorePeriod": "Q1",
+      "homeScore": "7",
+      "awayScore": "0",
+      "teamID": "32",
+      "scoreDetails": "8 plays, 61 yards, 3:46",
+      "scoreType": "TD",
+      "scoreTime": "11:14",
+      "team": "WSH",
+      "playerIDs": [
+       "2980100",
+       "3821683"
+      ]
+     }
+    ],
+    "teamID": "32",
+    "snapCounts": {
+     "offSnapPct": "0.00",
+     "defSnap": "20",
+     "stSnap": "2",
+     "stSnapPct": "0.08",
+     "offSnap": "0",
+     "defSnapPct": "0.47"
+    },
+    "team": "WSH",
+    "teamAbv": "WSH",
+    "Defense": {
+     "totalTackles": "2",
+     "defTD": "1",
+     "forcedFumbles": "0",
+     "soloTackles": "2",
+     "tfl": "1",
+     "qbHits": "1",
+     "defensiveInterceptions": "1",
+     "defensiveInterceptionsYards": "67",
+     "interceptionTDs": "1",
+     "sacks": "1",
+     "passDeflections": "1"
+    },
+    "playerID": "2980100",
+    "longName": "Dante Fowler Jr.",
+    "fantasyPoints": "6.0",
+    "fantasyPointsDefault": {
+     "standard": "6.0",
+     "PPR": "6.0",
+     "halfPPR": "6.0"
+    }
+   }
+  },
+  "scoringPlays": [
+   {
+    "score": "Dante Fowler Jr. 67 Yd Interception Return (Austin Seibert Kick)",
+    "scorePeriod": "Q1",
+    "homeScore": "7",
+    "awayScore": "0",
+    "teamID": "32",
+    "scoreDetails": "8 plays, 61 yards, 3:46",
+    "scoreType": "TD",
+    "scoreTime": "11:14",
+    "team": "WSH",
+    "playerIDs": [
+     "2980100",
+     "3821683"
+    ]
+   },
+   {
+    "score": "Austin Seibert 23 Yd Field Goal  ",
+    "scorePeriod": "Q1",
+    "homeScore": "10",
+    "awayScore": "0",
+    "teamID": "32",
+    "scoreDetails": "11 plays, 85 yards, 6:20",
+    "scoreType": "FG",
+    "scoreTime": "3:18",
+    "team": "WSH",
+    "playerIDs": [
+     "3821683"
+    ]
+   }
+  ]
+ }
+}

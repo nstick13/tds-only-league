@@ -1,0 +1,31 @@
+{
+ "_README": "TRIMMED to 1 of 32 teams, logos/records/topPerformers dropped. BIG ONE: byeWeeks is keyed by season year ('2022'...'2026'), so byes come straight from this endpoint - sync-schedule no longer has to derive them as 'all 32 teams minus teams with a game this week'.",
+ "statusCode": 200,
+ "body": [
+  {
+   "teamAbv": "BUF",
+   "teamCity": "Buffalo",
+   "teamName": "Bills",
+   "teamID": "4",
+   "byeWeeks": {
+    "2022": [
+     "7"
+    ],
+    "2023": [
+     "13"
+    ],
+    "2024": [
+     "12"
+    ],
+    "2025": [
+     "7"
+    ],
+    "2026": [
+     "7"
+    ]
+   },
+   "division": "East",
+   "conferenceAbv": "AFC"
+  }
+ ]
+}

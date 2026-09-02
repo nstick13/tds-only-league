@@ -1,0 +1,25 @@
+{
+ "_README": "TRIMMED to 2 rows. LIKELY UNNECESSARY: the same injury object is already embedded on every getNFLPlayerList row, so this endpoint can be skipped to save a call.",
+ "statusCode": 200,
+ "body": {
+  "injDate": "20260830",
+  "injList": [
+   {
+    "team": "KC",
+    "designation": "Q",
+    "pos": "LB",
+    "playerID": "3129310",
+    "teamID": "16",
+    "longName": "Drue Tranquill"
+   },
+   {
+    "team": "KC",
+    "designation": "Q",
+    "pos": "RB",
+    "playerID": "4567048",
+    "teamID": "16",
+    "longName": "Kenneth Walker III"
+   }
+  ]
+ }
+}

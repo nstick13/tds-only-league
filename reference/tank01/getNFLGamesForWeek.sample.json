@@ -1,0 +1,63 @@
+{
+ "_README": "TRIMMED to 3 of 16 games. gameTime_epoch (unix seconds, STRING) -> stages.first_kickoff_at directly. gameID feeds getNFLBoxScore. gameStatus/gameStatusCode gate score polling. seasonType='Regular Season'; gameWeek='Week 1'. STILL UNKNOWN: what these two look like for playoff rounds.",
+ "statusCode": 200,
+ "body": [
+  {
+   "gameID": "20250904_DAL@PHI",
+   "seasonType": "Regular Season",
+   "away": "DAL",
+   "gameDate": "20250904",
+   "espnID": "401772510",
+   "teamIDHome": "27",
+   "gameStatus": "Scheduled",
+   "gameWeek": "Week 1",
+   "teamIDAway": "9",
+   "home": "PHI",
+   "espnLink": "https://www.espn.com/nfl/boxscore/_/gameId/401772510",
+   "cbsLink": "https://www.cbssports.com/nfl/gametracker/boxscore/NFL_20250904_DAL@PHI",
+   "gameTime": "8:20p",
+   "gameTime_epoch": "1757031600.0",
+   "season": "2025",
+   "neutralSite": "False",
+   "gameStatusCode": "0"
+  },
+  {
+   "gameID": "20250905_KC@LAC",
+   "seasonType": "Regular Season",
+   "away": "KC",
+   "gameDate": "20250905",
+   "espnID": "401772714",
+   "teamIDHome": "18",
+   "gameStatus": "Scheduled",
+   "gameWeek": "Week 1",
+   "teamIDAway": "16",
+   "home": "LAC",
+   "espnLink": "https://www.espn.com/nfl/boxscore/_/gameId/401772714",
+   "cbsLink": "https://www.cbssports.com/nfl/gametracker/boxscore/NFL_20250905_KC@LAC",
+   "gameTime": "8:00p",
+   "gameTime_epoch": "1757116800.0",
+   "season": "2025",
+   "neutralSite": "True",
+   "gameStatusCode": "0"
+  },
+  {
+   "gameID": "20250907_ARI@NO",
+   "seasonType": "Regular Season",
+   "away": "ARI",
+   "gameDate": "20250907",
+   "espnID": "401772718",
+   "teamIDHome": "23",
+   "gameStatus": "Scheduled",
+   "gameWeek": "Week 1",
+   "teamIDAway": "1",
+   "home": "NO",
+   "espnLink": "https://www.espn.com/nfl/boxscore/_/gameId/401772718",
+   "cbsLink": "https://www.cbssports.com/nfl/gametracker/boxscore/NFL_20250907_ARI@NO",
+   "gameTime": "1:00p",
+   "gameTime_epoch": "1757264400.0",
+   "season": "2025",
+   "neutralSite": "False",
+   "gameStatusCode": "0"
+  }
+ ]
+}
