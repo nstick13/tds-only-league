@@ -68,7 +68,38 @@ problem (see the "Parsing approach" comment at the top of
 `sync-scores/index.ts` — the ESPN box-score shape was never confirmed
 against a live response either). Get real JSON first.
 
-## Also unresolved — call budget vs. cadence
+## RESOLVED — cadence + call budget (this session)
+
+Nate's call: **keep live in-game polling, but only in game-day windows,
+at 30-minute intervals** (rather than every 10 minutes, all week).
+
+`supabase/migrations/0004_cron.sql` has been rewritten to match. Note
+these two corrections made while implementing it:
+
+- **Monday Night Football was missing** from the originally-stated
+  Thu/Sat/Sun windows. MNF is a weekly regular-season fixture, so a
+  Thu/Sat/Sun-only schedule would have silently dropped every
+  Monday-night TD. It is now covered.
+- **pg_cron runs in UTC**, and every NFL night game runs past midnight
+  UTC — so night games land on the *next* UTC day. The windows account
+  for this explicitly (TNF shows up as a Friday-UTC job, SNF as a
+  Monday-UTC job, MNF as a Tuesday-UTC job). The header comment in
+  `0004_cron.sql` has the full mapping; read it before editing those
+  schedules.
+
+The bigger budget find: **`sync-players` was the real problem, not
+`sync-scores`.** It makes 1 team-index call + 1 call per team (32) per
+run, so at its old `*/20` cadence it was ~2,376 calls/day on its own —
+more than double the entire 1,000/day Pro allowance. Now every 6 hours
+(~132/day). `sync-schedule` dropped to every 12h. `sync-scores` is now
+76 runs/week, busiest UTC day 32 runs. `apply-locks` is DB-only (no
+external API calls), so it stays at every 5 minutes for free.
+
+These numbers still assume ESPN's one-call-per-game/per-team shape. If
+Tank01 exposes a whole-league player list or a whole-week boxscore in
+one call, there is a lot of headroom to tighten cadences back up.
+
+## Still unresolved — remaining budget questions
 
 Current cron (`supabase/migrations/0004_cron.sql`):
 - `sync-players` every 20 min → ~2,160 calls/month
@@ -109,9 +140,11 @@ don't discover it mid-migration.
 
 1. Nate brings back real Tank01 API responses (or a working RapidAPI
    key) for the four endpoints listed above.
-2. Decide the live-vs-finalized-after-games question for `sync-scores`
-   cadence — determines the call budget and whether nflverse re-enters
-   the picture for the players/schedule side.
+2. ~~Decide the live-vs-finalized-after-games question for `sync-scores`
+   cadence.~~ **DONE** — live polling kept, 30-min game-day windows;
+   `0004_cron.sql` rewritten. nflverse stays out of scope for now, but
+   remains the fallback if Tank01's per-call shape turns out to be
+   expensive.
 3. Design the ID re-keying approach for `players` /`roster_picks` /
    `player_stage_stats` before writing migration SQL.
 4. Write `supabase/functions/_shared/tank01.ts` (parallel structure to
