@@ -13,7 +13,9 @@ function assert(cond: unknown, msg = "assertion failed"): asserts cond {
 }
 function assertEquals<T>(actual: T, expected: T, msg?: string): void {
   const a = JSON.stringify(actual), b = JSON.stringify(expected);
-  if (a !== b) throw new Error(`${msg ? msg + ": " : ""}expected ${b}, got ${a}`);
+  if (a !== b) {
+    throw new Error(`${msg ? msg + ": " : ""}expected ${b}, got ${a}`);
+  }
 }
 import {
   byeWeeksFor,
@@ -44,7 +46,9 @@ Deno.test("toInt handles Tank01's string numbers, blanks and missing keys", () =
 });
 
 Deno.test("tdsFor pulls the three scored TD types off a real box score", async () => {
-  const box = await load<{ body: Tank01BoxScore }>("getNFLBoxScore.sample.json");
+  const box = await load<{ body: Tank01BoxScore }>(
+    "getNFLBoxScore.sample.json",
+  );
   const ps = box.body.playerStats!;
 
   // Mariota: 2 passing TDs, 0 rushing.
@@ -56,13 +60,19 @@ Deno.test("tdsFor pulls the three scored TD types off a real box score", async (
 });
 
 Deno.test("tdsFor ignores defensive and return TDs (league scores pass/rush/rec only)", async () => {
-  const box = await load<{ body: Tank01BoxScore }>("getNFLBoxScore.sample.json");
+  const box = await load<{ body: Tank01BoxScore }>(
+    "getNFLBoxScore.sample.json",
+  );
   const ps = box.body.playerStats!;
 
   // Dante Fowler Jr. returned an interception for a TD (Defense.defTD = "1").
   // He is a defender, unrosterable here, and must contribute nothing.
   const fowler = ps["2980100"];
-  assertEquals(fowler.Defense?.defTD, "1", "sample should still contain a defTD");
+  assertEquals(
+    fowler.Defense?.defTD,
+    "1",
+    "sample should still contain a defTD",
+  );
   assertEquals(tdsFor(fowler), { pass_td: 0, rush_td: 0, rec_td: 0 });
   assert(!hasAnyTd(tdsFor(fowler)));
 
@@ -77,18 +87,24 @@ Deno.test("tdsFor is safe on a player with no stat categories at all", () => {
 });
 
 Deno.test("game status gating: final games stop being polled", async () => {
-  const box = await load<{ body: Tank01BoxScore }>("getNFLBoxScore.sample.json");
+  const box = await load<{ body: Tank01BoxScore }>(
+    "getNFLBoxScore.sample.json",
+  );
   assert(isFinal(box.body), "completed game must read as final");
   assert(!isScheduled(box.body));
 
-  const week = await load<{ body: Tank01Game[] }>("getNFLGamesForWeek.sample.json");
+  const week = await load<{ body: Tank01Game[] }>(
+    "getNFLGamesForWeek.sample.json",
+  );
   const g = week.body[0];
   assert(isScheduled(g), "an unplayed game must read as scheduled");
   assert(!isFinal(g), "an unplayed game must not read as final");
 });
 
 Deno.test("kickoffAt converts gameTime_epoch to a real Date", async () => {
-  const week = await load<{ body: Tank01Game[] }>("getNFLGamesForWeek.sample.json");
+  const week = await load<{ body: Tank01Game[] }>(
+    "getNFLGamesForWeek.sample.json",
+  );
   const d = kickoffAt(week.body[0]);
   assert(d instanceof Date && !Number.isNaN(d.getTime()));
   // 1757031600 = 2025-09-05T00:20:00Z (Thu 8:20p ET) — note it lands on the
@@ -103,7 +119,10 @@ Deno.test("byeWeeksFor reads byes off the team payload", async () => {
   const t = teams.body[0];
   assert(t.byeWeeks, "sample team should carry byeWeeks");
   const byes = byeWeeksFor(t, "2025");
-  assert(byes.every((n) => Number.isInteger(n) && n > 0 && n <= 18), `bad byes: ${byes}`);
+  assert(
+    byes.every((n) => Number.isInteger(n) && n > 0 && n <= 18),
+    `bad byes: ${byes}`,
+  );
   assertEquals(byeWeeksFor(t, "1999"), []); // unknown season -> no byes, not a crash
 });
 

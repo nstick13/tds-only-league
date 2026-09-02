@@ -16,8 +16,14 @@ export interface StageRow {
   id: number;
   name: string;
   ordinal: number;
-  espn_season_type: number;
-  espn_week_num: number;
+  /**
+   * Tank01 getNFLGamesForWeek?seasonType= value, or null when this stage has
+   * no confirmed addressing yet (the four postseason rows — see
+   * supabase/migrations/0005_tank01_stage_addressing.sql).
+   */
+  season_type: string | null;
+  /** Tank01 getNFLGamesForWeek?week= value, or null. See season_type. */
+  week_num: number | null;
   status: string;
   first_kickoff_at: string | null;
 }
@@ -59,4 +65,50 @@ export async function resolveStage(
   throw new Error(
     "no target stage found: no draft_open/locked stage and no upcoming stage remain",
   );
+}
+
+/**
+ * A stage is addressable when we know which Tank01 week it maps to.
+ *
+ * The four postseason stages ship unaddressed on purpose: we never captured a
+ * real playoff response, so their seasonType/week numbering is unconfirmed.
+ * Sync jobs must check this and skip rather than send week=null to the API,
+ * which would come back as an empty result and look like "no games this week"
+ * instead of "this stage was never configured".
+ */
+export function isAddressable(
+  stage: StageRow,
+): stage is StageRow & { season_type: string; week_num: number } {
+  return stage.season_type !== null && stage.week_num !== null;
+}
+
+/** Message used by every job that skips an unaddressed stage, so sync_log reads consistently. */
+export function unaddressedStageMessage(stage: StageRow): string {
+  return (
+    `Stage "${stage.name}" (ordinal ${stage.ordinal}) has no Tank01 week ` +
+    `addressing yet, so there is nothing to fetch. Confirm the playoff ` +
+    `seasonType/week values against a real response and set season_type / ` +
+    `week_num — see supabase/migrations/0005_tank01_stage_addressing.sql.`
+  );
+}
+
+/**
+ * The NFL season year to ask Tank01 for.
+ *
+ * ESPN's scoreboard implied the current season; Tank01 requires it explicitly.
+ * A season is named for the calendar year it STARTS in, so January's playoffs
+ * still belong to the previous year's season — getting this wrong would fetch
+ * the wrong games every January. Override with the TANK01_SEASON env var when
+ * backfilling a past season.
+ */
+export function currentSeason(now: Date = new Date()): number {
+  const override = Deno.env.get("TANK01_SEASON");
+  if (override) {
+    const n = Number.parseInt(override, 10);
+    if (Number.isFinite(n) && n > 2000) return n;
+  }
+  // Months are 0-based: 0-5 = Jan-Jun still belongs to last year's season.
+  return now.getUTCMonth() <= 5
+    ? now.getUTCFullYear() - 1
+    : now.getUTCFullYear();
 }

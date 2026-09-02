@@ -42,17 +42,21 @@ export interface Stage {
   name: string;
   /** Draft/display order, 1..22. Always sort/query by this, never hardcode a stage list. */
   ordinal: number;
-  /** ESPN seasontype: 2 = regular season, 3 = postseason. */
-  espn_season_type: 2 | 3;
-  espn_week_num: number;
+  /**
+   * Tank01 seasonType for this stage, or null when the stage has no confirmed
+   * week addressing yet (the four postseason rows).
+   */
+  season_type: string | null;
+  /** Tank01 week number for this stage, or null. See season_type. */
+  week_num: number | null;
   status: StageStatus;
   first_kickoff_at: string | null;
   created_at: string;
 }
 
-/** players table — league-wide player pool synced from ESPN. */
+/** players table — league-wide player pool synced from Tank01. */
 export interface Player {
-  /** ESPN athlete id. */
+  /** ESPN athlete id — also Tank01's playerID, which is the same value. */
   id: string;
   name: string;
   position: import("./roster").Position;

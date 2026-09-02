@@ -63,7 +63,9 @@ export async function fetchTank01<T>(
 
   const url = new URL(`${BASE}/${path}`);
   for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
+    if (v !== undefined && v !== null && v !== "") {
+      url.searchParams.set(k, String(v));
+    }
   }
   const href = url.toString();
 
@@ -211,7 +213,9 @@ export async function getPlayerList(
     });
     const batch = body?.players ?? [];
     if (batch.length === 0 && page === 0) {
-      throw new Error("getNFLPlayerList returned zero players on the first page");
+      throw new Error(
+        "getNFLPlayerList returned zero players on the first page",
+      );
     }
     all.push(...batch);
     token = body?.nextToken;
@@ -255,7 +259,10 @@ export async function getTeams(): Promise<Tank01Team[]> {
 }
 
 /** Bye week numbers for a team in a given season, normalised to numbers. */
-export function byeWeeksFor(team: Tank01Team, season: string | number): number[] {
+export function byeWeeksFor(
+  team: Tank01Team,
+  season: string | number,
+): number[] {
   const raw = team.byeWeeks?.[String(season)];
   if (!raw) return [];
   const parts = Array.isArray(raw) ? raw : String(raw).split(",");
@@ -317,7 +324,9 @@ export function kickoffAt(game: Tank01Game): Date | null {
  * the gameStatus string is checked too so a code change doesn't silently
  * make us re-poll everything forever.
  */
-export function isFinal(game: Pick<Tank01Game, "gameStatus" | "gameStatusCode">): boolean {
+export function isFinal(
+  game: Pick<Tank01Game, "gameStatus" | "gameStatusCode">,
+): boolean {
   return game.gameStatusCode === "2" ||
     (game.gameStatus ?? "").toLowerCase() === "completed";
 }

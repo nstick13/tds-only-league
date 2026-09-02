@@ -1,60 +1,94 @@
 // sync-players
 //
-// Pulls the full 32-team roster from ESPN and upserts QB/RB/WR/TE into
-// `players`, including injury status (the athlete's `injuries[]` array on
-// the SAME roster response — so this one job covers both the initial
-// roster pull and the ongoing injury-status refresh; no separate job
-// needed). Never falls back to stale/cached data on a bad fetch — a
-// failure aborts the run and logs an 'error' sync_log row instead.
+// Pulls the whole-league player pool from Tank01 (RapidAPI) and upserts
+// QB/RB/WR/TE into `players`, including injury status (the `injury` object
+// is embedded on the SAME player-list row — so this one job covers both the
+// initial roster pull and the ongoing injury-status refresh; no separate job
+// and no getNFLInjuryList call needed). Never falls back to stale/cached
+// data on a bad fetch — a failure aborts the run and logs an 'error'
+// sync_log row instead.
+//
+// Quota: one paginated getNFLPlayerList chain (page size 1000, ~3 pages),
+// i.e. ~3 API calls per run — replacing the old ESPN shape of 1 team-index
+// call + 32 per-team roster calls (33 calls). getPlayerList() throws rather
+// than returning a partial pool if pagination doesn't terminate.
+//
+// Every field read below is verified against the captured response in
+// reference/tank01/getNFLPlayerList.sample.json. Do not add a field that
+// isn't in that sample.
 //
 // Invoke: POST (no body needed).
 import { getServiceClient, writeSyncLog } from "../_shared/db.ts";
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
-import {
-  EspnAthlete,
-  getTeamIndex,
-  getTeamRoster,
-  mapWithConcurrency,
-} from "../_shared/espn.ts";
+import { getPlayerList, Tank01Player } from "../_shared/tank01.ts";
 
+// Source of truth for the league's positions is src/lib/roster.ts
+// (POSITIONS). It lives in the Vite app and can't be imported from an Edge
+// Function bundle, so it's mirrored here. These four values are also the
+// entire domain of the `players.position` CHECK constraint in
+// supabase/migrations/0001_core.sql — anything else must never reach the
+// insert or the whole chunk fails.
 const KEEP_POSITIONS = new Set(["QB", "RB", "WR", "TE"]);
-const ROSTER_CONCURRENCY = 5;
-// 32 teams x (QB/RB/WR/TE only) is comfortably >200 in practice (roughly
-// 3 QB + 5-6 RB + 6-7 WR + 3 TE per team, times 32). Anything under this
-// almost certainly means a partial/broken fetch, not a genuinely thin
-// league-wide pool — treat it as a sync failure per the "loud staleness /
-// never silently degrade" rule in docs/ARCHITECTURE.md.
+
+// The rostered (non-free-agent) QB/RB/WR/TE pool across 32 teams is
+// comfortably >200 in practice (roughly 3 QB + 5-6 RB + 6-7 WR + 3 TE per
+// team, times 32). Anything under this almost certainly means a partial or
+// broken fetch, not a genuinely thin league-wide pool — treat it as a sync
+// failure per the "loud staleness / never silently degrade" rule in
+// docs/ARCHITECTURE.md.
 const MIN_PLAUSIBLE_PLAYER_COUNT = 200;
+
+// Upsert in chunks to keep request bodies reasonable — the pool is 1000+ rows.
+const CHUNK = 200;
 
 interface PlayerRow {
   id: string;
   name: string;
   position: string;
-  nfl_team: string;
-  nfl_team_id: string;
+  nfl_team: string | null;
+  nfl_team_id: string | null;
   status: string;
   status_detail: string | null;
   updated_at: string;
   last_synced_at: string;
+  // NOTE: `on_bye` is deliberately ABSENT from this interface and from every
+  // row we send. sync-schedule owns that column. PostgREST builds its
+  // ON CONFLICT DO UPDATE SET list from the keys present in the payload, so
+  // omitting on_bye leaves existing values untouched; including it (even as
+  // `false`) would un-bye the entire league on every players run.
 }
 
+/**
+ * Tank01's `isFreeAgent` is the STRING "True"/"False", never a boolean —
+ * `if (p.isFreeAgent)` is truthy for BOTH values and is a bug. Compare the
+ * string.
+ */
+function isFreeAgent(p: Tank01Player): boolean {
+  return (p.isFreeAgent ?? "").trim().toLowerCase() === "true";
+}
+
+/**
+ * Map Tank01's embedded injury object onto status / status_detail.
+ *
+ * `injury.designation` is one of "" | "Questionable" | "Out" |
+ * "Injured Reserve" in the captured data. Empty string means healthy, which
+ * maps to 'Active' because the column is NOT NULL. Unrecognised values are
+ * passed through as-is rather than silently coerced to 'Active'
+ * (status_detail preserves the original text either way).
+ */
 function normalizeStatus(
-  athlete: EspnAthlete,
+  player: Tank01Player,
 ): { status: string; status_detail: string | null } {
-  const injury = athlete.injuries?.[0];
-  if (!injury || !injury.status) {
+  const raw = (player.injury?.designation ?? "").trim();
+  const description = (player.injury?.description ?? "").trim();
+  const detail = description.length > 0 ? description : null;
+
+  if (raw.length === 0) {
+    // Healthy. Keep any lingering description out of the way so the UI
+    // doesn't show an injury note next to an Active player.
     return { status: "Active", status_detail: null };
   }
 
-  const raw = injury.status.trim();
-  const detail = injury.details?.detail ?? null;
-
-  // Normalize ESPN's free-text injury status into our small enum-ish set.
-  // ESPN uses values like "Questionable", "Doubtful", "Out",
-  // "Injured Reserve" / "IR", "Physically Unable to Perform" / "PUP",
-  // "Suspension", "Active". Anything unrecognized is passed through as-is
-  // (status_detail preserves the original text either way) rather than
-  // silently coerced to "Active".
   const lower = raw.toLowerCase();
   let status = raw;
   if (lower === "questionable") status = "Questionable";
@@ -66,6 +100,15 @@ function normalizeStatus(
   return { status, status_detail: detail ?? raw };
 }
 
+/** longName is present on every sampled row; fall back to the name parts. */
+function playerName(p: Tank01Player): string | null {
+  const long = (p.longName ?? "").trim();
+  if (long.length > 0) return long;
+  const joined = `${(p.firstName ?? "").trim()} ${(p.lastName ?? "").trim()}`
+    .trim();
+  return joined.length > 0 ? joined : null;
+}
+
 Deno.serve(async (req: Request) => {
   const preflight = handleOptions(req);
   if (preflight) return preflight;
@@ -74,75 +117,70 @@ Deno.serve(async (req: Request) => {
   const startedAt = Date.now();
 
   try {
-    const teams = await getTeamIndex(); // throws if empty/malformed
-
-    const { results: rosterResults, errors: rosterErrors } =
-      await mapWithConcurrency(teams, ROSTER_CONCURRENCY, async (t) => {
-        const categories = await getTeamRoster(t.team.id);
-        return { team: t, categories };
-      });
-
-    // A handful of individual team-roster failures (transient ESPN
-    // hiccups) shouldn't necessarily kill the whole run, but if we
-    // couldn't get a large fraction of teams, treat the whole run as
-    // unreliable rather than upserting a partial/skewed pool.
-    if (rosterErrors.length > 0) {
-      console.error(
-        `sync-players: ${rosterErrors.length}/${teams.length} team roster fetches failed`,
-        rosterErrors.map((e) => String(e.error)),
-      );
-    }
-    if (rosterErrors.length > teams.length / 2) {
-      const msg =
-        `Aborting: ${rosterErrors.length}/${teams.length} team roster fetches failed — ` +
-        `refusing to upsert a partial player pool.`;
-      await writeSyncLog(supabase, "players", "error", msg, 0);
-      return jsonResponse({ ok: false, error: msg }, 502);
-    }
+    // Throws on an empty first page or on non-terminating pagination, so a
+    // partial pool can never reach the upsert.
+    const players = await getPlayerList();
 
     const now = new Date().toISOString();
     const rows = new Map<string, PlayerRow>();
 
-    for (const { team, categories } of rosterResults) {
-      for (const category of categories) {
-        for (const athlete of category.items ?? []) {
-          const pos = athlete.position?.abbreviation ?? "";
-          if (!KEEP_POSITIONS.has(pos)) continue;
-          if (!athlete.id) continue;
+    let freeAgentsSkipped = 0;
+    let wrongPositionSkipped = 0;
 
-          const name = athlete.fullName ?? athlete.displayName;
-          if (!name) continue;
-
-          const { status, status_detail } = normalizeStatus(athlete);
-
-          rows.set(String(athlete.id), {
-            id: String(athlete.id),
-            name,
-            position: pos,
-            nfl_team: team.team.abbreviation ?? team.team.displayName,
-            nfl_team_id: String(team.team.id),
-            status,
-            status_detail,
-            updated_at: now,
-            last_synced_at: now,
-          });
-        }
+    for (const p of players) {
+      const pos = (p.pos ?? "").trim().toUpperCase();
+      if (!KEEP_POSITIONS.has(pos)) {
+        wrongPositionSkipped++;
+        continue;
       }
+
+      // Free agents are EXCLUDED from the draftable pool. This is a
+      // deliberate choice, not an oversight: Tank01 keeps retired and
+      // unsigned players in the list (Philip Rivers is in the captured
+      // sample) and they carry a STALE `team`/`teamID` from their last
+      // stop, so importing them would put un-signable players on rosters
+      // that look real in the draft UI. If the league ever wants
+      // free agents draftable, they need a null nfl_team, not this row.
+      if (isFreeAgent(p)) {
+        freeAgentsSkipped++;
+        continue;
+      }
+
+      const id = (p.playerID ?? "").trim();
+      if (!id) continue;
+
+      const name = playerName(p);
+      if (!name) continue;
+
+      const { status, status_detail } = normalizeStatus(p);
+
+      rows.set(id, {
+        id, // Tank01 playerID === ESPN athlete id (verified) — no re-keying.
+        name,
+        position: pos,
+        nfl_team: (p.team ?? "").trim() || null,
+        nfl_team_id: (p.teamID ?? "").trim() || null,
+        status,
+        status_detail,
+        updated_at: now,
+        last_synced_at: now,
+      });
     }
 
     const playerRows = Array.from(rows.values());
 
     if (playerRows.length < MIN_PLAUSIBLE_PLAYER_COUNT) {
       const msg =
-        `Aborting: only parsed ${playerRows.length} QB/RB/WR/TE players across ` +
-        `${teams.length} teams (${rosterResults.length} rosters fetched OK) — ` +
-        `below the plausibility floor of ${MIN_PLAUSIBLE_PLAYER_COUNT}. Refusing to upsert.`;
+        `Aborting: only parsed ${playerRows.length} QB/RB/WR/TE players from ` +
+        `${players.length} Tank01 player rows (${freeAgentsSkipped} free agents ` +
+        `skipped) — below the plausibility floor of ${MIN_PLAUSIBLE_PLAYER_COUNT}. ` +
+        `Refusing to upsert.`;
       await writeSyncLog(supabase, "players", "error", msg, playerRows.length);
       return jsonResponse({ ok: false, error: msg }, 502);
     }
 
-    // Upsert in chunks to keep request bodies reasonable.
-    const CHUNK = 200;
+    // Upsert in chunks to keep request bodies reasonable. `on_bye` is not in
+    // the payload, so this never clobbers sync-schedule's bye flags.
     for (let i = 0; i < playerRows.length; i += CHUNK) {
       const chunk = playerRows.slice(i, i + CHUNK);
       const { error } = await supabase
@@ -156,17 +194,18 @@ Deno.serve(async (req: Request) => {
     }
 
     const ms = Date.now() - startedAt;
-    const msg = `Synced ${playerRows.length} players (QB/RB/WR/TE) across ${teams.length} teams in ${ms}ms` +
-      (rosterErrors.length > 0
-        ? ` (${rosterErrors.length} team roster fetches failed and were skipped)`
-        : "");
+    const msg =
+      `Synced ${playerRows.length} players (QB/RB/WR/TE) from ${players.length} ` +
+      `Tank01 player rows in ${ms}ms (${freeAgentsSkipped} free agents skipped, ` +
+      `${wrongPositionSkipped} non-QB/RB/WR/TE skipped)`;
     await writeSyncLog(supabase, "players", "success", msg, playerRows.length);
 
     return jsonResponse({
       ok: true,
       playerCount: playerRows.length,
-      teamCount: teams.length,
-      failedTeamRosterFetches: rosterErrors.length,
+      sourceRowCount: players.length,
+      freeAgentsSkipped,
+      wrongPositionSkipped,
       ms,
     });
   } catch (err) {
