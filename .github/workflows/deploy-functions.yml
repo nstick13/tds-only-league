@@ -1,6 +1,6 @@
 name: Deploy Supabase Edge Functions
 
-# Deploys the ESPN sync Edge Functions (supabase/functions/*) to Supabase.
+# Deploys the Tank01 sync Edge Functions (supabase/functions/*) to Supabase.
 # This lets function deploys happen straight from GitHub — no local Supabase
 # CLI or computer required.
 #
@@ -8,6 +8,14 @@ name: Deploy Supabase Edge Functions
 # SUPABASE_ACCESS_TOKEN (GitHub repo -> Settings -> Secrets and variables ->
 # Actions -> New repository secret). Get the token value from Supabase ->
 # account menu (top-right) -> Account Settings -> Access Tokens -> Generate.
+#
+# IMPORTANT ORDERING: the sync functions read stages.season_type / week_num,
+# which migration 0006_tank01_stage_addressing.sql creates. Run that migration
+# BEFORE deploying, or the deployed functions will error until it lands.
+#
+# To deploy a branch that isn't listed under `on.push.branches` below, use the
+# Actions tab -> "Deploy Supabase Edge Functions" -> "Run workflow" and pick
+# the branch (that's what `workflow_dispatch` is for).
 #
 # The project ref below is public (it's in your Supabase URL), so it's fine
 # to hardcode — the access token is the only secret.
