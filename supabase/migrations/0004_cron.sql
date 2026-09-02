@@ -21,15 +21,23 @@
 --   sync-players  @ */20  -> 72 runs/day x 33 calls = ~2,376 calls/day  (!!)
 --   sync-schedule @ */30  -> 48 runs/day
 --   sync-scores   @ */10  -> 144 runs/day, x N in-progress games each
--- New cadences:
---   sync-players  @ every 6h  -> 4 runs/day x 33 = ~132 calls/day
---   sync-schedule @ every 12h -> 2 runs/day
---   sync-scores   -> 76 runs/WEEK total; busiest UTC day (Sunday slate plus
---                    the Sunday-night spillover) is 32 runs. Even at one
---                    call per in-progress game that is ~320 calls that day.
--- NOTE: if Tank01 turns out to expose a whole-league player list and/or a
--- whole-week boxscore in ONE call, these numbers drop by another order of
--- magnitude and sync-players could go back to a tighter interval.
+-- New cadences, using the ACTUAL Tank01 call counts (measured against the
+-- captured responses in reference/tank01/, not estimated):
+--   sync-players  @ every 6h  -> 4 runs/day x ~3 paginated calls = ~12/day.
+--                    Tank01 returns the whole league from one endpoint
+--                    (1000 players/page + nextToken), so the old per-team
+--                    roster fan-out is gone entirely.
+--   sync-schedule @ every 12h -> 2 runs/day x 2 calls = 4/day
+--                    (getNFLGamesForWeek + getNFLTeams for bye weeks).
+--   sync-scores   -> 76 runs/WEEK; busiest UTC day (Sunday slate plus the
+--                    Sunday-night spillover) is 32 runs. Each run is
+--                    1 getNFLGamesForWeek + one box score per game that is
+--                    actually live: games that have not kicked off have no
+--                    stats, and final games are frozen and fetched once.
+--                    Worst case for a 16-game Sunday is 1 + 16 on a single
+--                    run, and far less on every run after it.
+-- Total steady-state is a small fraction of the 1,000/day allowance, so the
+-- headroom is there if these cadences ever need tightening.
 --
 -- GAME-DAY WINDOWS — IMPORTANT: pg_cron schedules are UTC
 -- ----------------------------------------------------------------------------
