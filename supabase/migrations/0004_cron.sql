@@ -112,7 +112,7 @@ exception
 end $$;
 
 -- ----------------------------------------------------------------------------
--- sync-players — every 6 hours (1 + 32 calls per run; see CALL BUDGET above)
+-- sync-players — every 6 hours (~3 paginated calls per run; see CALL BUDGET above)
 -- ----------------------------------------------------------------------------
 select cron.schedule(
   'tdsonly-sync-players',
