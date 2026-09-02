@@ -1,9 +1,19 @@
 # Handoff: migrating ESPN sync → Tank01 API
 
-Status: **planned, not started.** The endpoint inventory and call budget
-below are settled; what's still missing is real response JSON (see
-"Still blocked on"). This doc is the handoff for whoever — human or a new
+Status: **planned, not started.** The endpoint inventory, call budget, and
+three of the five response shapes are settled from real captured JSON
+(Injury List, Teams, Player List — 2026-09-02). Two shapes are still
+missing (Daily Scoreboard, Box Score) and they are the two that gate the
+scoring rewrite. This doc is the handoff for whoever — human or a new
 Claude session — picks it up next.
+
+**The headline finding from the captured JSON: Tank01's `playerID` IS the
+ESPN athlete id.** Every player in the sample has `playerID === espnID`
+(Jack Coco 4240499, Drue Tranquill 3129310, Jaxon Smith-Njigba 4430878,
+Philip Rivers 5529, Raymond Jackson 999). The ID re-keying that this doc
+previously called a data migration is **not needed at all** —
+`players.id`, `roster_picks.player_id` and `player_stage_stats.player_id`
+already hold Tank01 player ids. See "IDs: mostly a non-issue" below.
 
 ## Why we're moving off ESPN
 
@@ -39,11 +49,11 @@ Confirmed from the RapidAPI endpoint list (2026-09-01):
 
 | Endpoint | Use for us |
 | --- | --- |
-| Get NFL Teams | team id/abbr index — replaces `getTeamIndex()` |
+| `getNFLTeams` | team index **and every team's bye week** — replaces `getTeamIndex()` AND the bye derivation |
 | Get NFL Team Roster | per-team roster (32 calls) — **fallback only** |
-| Get Player List | **whole-league player list, likely 1 call** — preferred for `sync-players` |
-| Get Player Information | single-player lookup; useful for ID cross-reference |
-| NFL Injury List | **league-wide injuries in 1 call** — splits injury refresh off `sync-players` |
+| `getNFLPlayerList` | whole-league player list — preferred for `sync-players`, but **paginated** (see below) |
+| Get Player Information | single-player lookup; no longer needed for ID mapping |
+| `getNFLInjuriesByDate` | **league-wide injuries in 1 call** — splits injury refresh off `sync-players` |
 | Get Weekly NFL Schedule | that week's games — replaces `getScoreboard()` for `sync-schedule` |
 | Get NFL Team Schedule | per-team schedule; not needed if weekly works |
 | Get Daily Scoreboard - Live | which games are live/final right now — the **cheap poll** that gates box-score calls |
@@ -60,6 +70,86 @@ Confirmed from the RapidAPI endpoint list (2026-09-01):
 
 Only **six** of these matter: Teams, Player List, Injury List, Weekly
 Schedule, Daily Scoreboard, Box Score.
+
+## What the captured responses settle
+
+Three real responses are in hand (2026-09-02). Save them under
+`reference/tank01-samples/` as parser fixtures.
+
+### `getNFLInjuriesByDate` — one call, whole league
+
+```
+{ statusCode, body: { injList: [ { team, teamID, playerID, longName, pos, designation } ], injDate } }
+```
+
+~250 rows, all positions. **`designation` is abbreviated here: `Q`, `O`,
+`IR`** — not the full words. Absence from the list means healthy. So
+`normalizeStatus()` gets rewritten as a small map (`Q`→Questionable,
+`O`→Out, `IR`→IR) plus "not in list → Active", and the job must clear
+stale statuses on players who dropped off the list.
+
+Careful: the **Player List** carries a *different* injury vocabulary in
+its own `injury.designation` field — full words there ("Questionable",
+"Out", "Injured Reserve"). Don't write one parser for both. Prefer the
+injury endpoint; it's the fresher, cheaper source.
+
+### `getNFLTeams` — one call, and it kills the bye-week derivation
+
+Each of the 32 teams carries `byeWeeks` keyed by season year:
+
+```
+"byeWeeks": { "2025": ["7"], "2026": ["7"] }
+```
+
+Today `sync-schedule` infers byes by diffing the week's scoreboard
+against the 32-team index. **Delete that.** One `getNFLTeams` call gives
+every team's bye week for the whole season directly, so byes can be set
+once a week (or once a season) instead of being re-derived from every
+scoreboard pull. `topPerformers` is season-to-date leaders only — useless
+for weekly scoring, ignore it. `teamStats` came back `{}` (preseason).
+
+### `getNFLPlayerList` — the one with traps
+
+Confirms `playerID === espnID`, but two things make this not a
+one-call drop-in:
+
+1. **It's paginated.** The response ends with a `nextToken`
+   (`"eyJwbGF5ZXJJRCI6ICIyOTc5NTUzIn0="`) — base64 of the last
+   `playerID`. Budget several calls per full pull, not one, and write the
+   pagination loop with a hard page cap so a bad token can't spin.
+2. **It's a historical database, not a roster.** Philip Rivers, DeSean
+   Jackson, Ndamukong Suh and Mason Crosby are all in there, each with a
+   `team` set. The filter that matters is `isFreeAgent === "False"`
+   (string, not boolean). Filtering on `team` alone would put retired
+   players into the draft pool.
+
+`pos` values match ESPN's (`QB`/`RB`/`WR`/`TE`), so `KEEP_POSITIONS`
+carries over unchanged.
+
+## IDs: mostly a non-issue
+
+`playerID === espnID` across every sampled player, so the planned
+re-keying is off. `players.id` keeps its current values, `roster_picks`
+and `player_stage_stats` are untouched, and no migration SQL is needed
+for the player pool. Still worth adding a nullable `tank01_id` column
+that we populate with the same value — it costs nothing now and means
+the next provider swap isn't a schema change.
+
+**One real mismatch remains: team ids.** `players.nfl_team_id` currently
+holds ESPN team ids; Tank01 uses its own, assigned alphabetically by
+abbreviation:
+
+```
+1 ARI   2 ATL   3 BAL   4 BUF   5 CAR   6 CHI   7 CIN   8 CLE
+9 DAL  10 DEN  11 DET  12 GB   13 HOU  14 IND  15 JAX  16 KC
+17 LV   18 LAC  19 LAR  20 MIA  21 MIN  22 NE   23 NO   24 NYG
+25 NYJ  26 PIT  27 PHI  28 SF   29 SEA  30 TB   31 TEN  32 WSH
+```
+
+That's a 32-row remap, and `players.nfl_team` (the abbreviation) is
+stable across both providers, so the migration is a single UPDATE joined
+on abbreviation. Verify the map against a live `getNFLTeams` response
+rather than trusting the table above — it was read off one sample.
 
 ## Scoping: how much data do we actually need?
 
@@ -106,16 +196,23 @@ Assumes worst-case Sunday: ~9 early games, ~4 late, 1 SNF, live window
 
 **Everything else (every day):**
 
-| Job | Cadence | Calls/day |
-| --- | --- | --- |
-| Player list | 2×/day | 2 |
-| Injury list | every 30 min | 48 |
-| Weekly schedule | every 3 hours | 8 |
-| | **Total** | **58** |
+| Job | Cadence | Calls/run | Calls/day |
+| --- | --- | --- | --- |
+| Player list (paginated) | 2×/day | ~6 | 12 |
+| Injury list | every 30 min | 1 | 48 |
+| Teams (byes) | 1×/day | 1 | 1 |
+| Weekly schedule | every 3 hours | 1 | 8 |
+| | | **Total** | **69** |
 
-**Worst-case Sunday ≈ 751 calls. Other days ≈ 58.** That fits inside
-1,000/day with ~250 headroom, at a *tighter* cadence than today's
+**Worst-case Sunday ≈ 762 calls. Other days ≈ 69.** That fits inside
+1,000/day with ~240 headroom, at a *tighter* cadence than today's
 10-minute one.
+
+The player-list figure assumes ~6 pages; the sample page held several
+hundred players and the league-wide file includes free agents and retired
+players, so measure the real page count on the first full pull and revise
+this row. It's cheap either way at 2×/day — but don't let it creep to
+hourly without re-doing this math.
 
 Compare to today's cron, which would be catastrophic on this plan:
 `sync-players` alone is 32 calls × 72 runs/day = **2,304 calls/day**.
@@ -136,62 +233,32 @@ configured daily ceiling (say 900). Getting 429'd at 3pm on a Sunday with
 no idea why is exactly the failure mode this migration is supposed to end.
 Log the running count to `sync_log` so the staleness UI can surface it.
 
-## The ID re-keying problem
-
-Tank01 uses its own `playerID`, different from the ESPN athlete ids
-currently stored as `players.id` and referenced by `roster_picks.player_id`
-and `player_stage_stats.player_id`. Both reference it with real FKs, and
-`roster_picks` may already hold drafted rows — so this is a data
-migration, not just a fetch-layer swap.
-
-**The thing to check first:** Tank01's player endpoints are widely
-reported to include cross-reference ids (`espnID`, `sleeperBotID`,
-`fantasyProsPlayerID`, …) alongside their own `playerID`. If `espnID` is
-present in the Player List response, the re-key is mechanical:
-
-1. Pull the full Tank01 player list once, build `espnID → playerID`.
-2. Add `players.tank01_id`, backfill via that map.
-3. Repoint the FKs to the new id (or keep `players.id` as the stable
-   internal key and just store `tank01_id` alongside — **preferred**,
-   since it avoids touching `roster_picks` at all and leaves room for a
-   future provider swap).
-
-Option 3 is the recommendation: stop treating a vendor's id as our
-primary key. Make `players.id` internal, carry `espn_id` and `tank01_id`
-as nullable lookup columns, and match on those in the sync jobs.
-
-If `espnID` is *not* in the response, fall back to fuzzy
-(name, position, team) matching — with a hard requirement that any
-unmatched player already referenced by `roster_picks` fails the migration
-loudly rather than silently orphaning someone's drafted roster.
-
 ## Still blocked on
 
-**Real Tank01 response JSON.** This sandbox can't reach `rapidapi.com` or
-`tank01.com` (egress proxy blocks both), so field names cannot be
-confirmed from here. Before writing `_shared/tank01.ts`, capture one real
-response for each of:
+Two responses, and they're the two the scoring rewrite depends on. This
+sandbox can't reach `rapidapi.com` or `tank01.com` (egress proxy blocks
+both), so these have to be captured from the RapidAPI playground with the
+Pro key and saved into `reference/tank01-samples/`:
 
-- **Get Player List** — does it return the whole league in one call? does
-  it include `espnID`? what are the position/team field names?
-- **NFL Injury List** — player id field, injury status vocabulary (so
-  `normalizeStatus()` can be rewritten against real values, not ESPN's).
-- **Get Weekly NFL Schedule** — game id, kickoff timestamp format, the
-  two team ids per game (drives `first_kickoff_at` and bye detection).
 - **Get Daily Scoreboard - Live** — the **game status field and its exact
-  values** (in-progress vs final). The whole polling design hangs on this.
+  values** (scheduled vs in-progress vs final). The entire polling design
+  hangs on being able to tell those apart. Capture this one *during* a
+  live game window, or the status field will only ever show one value.
 - **Get NFL Game Box Score - Live** — the per-player passing/rushing/
   receiving TD field names. This replaces `tallyGame()` and is the one
   place a wrong guess silently produces wrong scores instead of an error.
+  Also settles the budget question below.
 
-**Do not build against guessed field names.** The reason we're leaving
-ESPN is an unvalidated-assumption problem — the ESPN box-score shape in
-`sync-scores/index.ts` was never confirmed against a live response either
-(see the "Parsing approach" comment there). Get real JSON first.
+**Do not build the scoring path against guessed field names.** The reason
+we're leaving ESPN is an unvalidated-assumption problem — the ESPN
+box-score shape in `sync-scores/index.ts` was never confirmed against a
+live response either (see the "Parsing approach" comment there). The
+player/injury/team jobs *can* be built now against the captured JSON;
+`sync-scores` cannot.
 
-Easiest capture: hit each endpoint once in the RapidAPI playground with
-the Pro key and save the response bodies into `reference/tank01-samples/`.
-That directory then doubles as fixtures for parser tests.
+One naming note for whoever captures them: the real endpoint names differ
+from the RapidAPI UI labels (`getNFLInjuriesByDate`, not "NFL Injury
+List"). Record the exact path and query params alongside each sample.
 
 ## Also worth settling
 
@@ -203,35 +270,46 @@ materially. The budget above assumes yes, live matters.
 
 ## Step order
 
-1. **Capture real responses** for the five endpoints above into
-   `reference/tank01-samples/`. Everything else is blocked on this.
-2. **Answer the live-scoring question** — determines cadence and whether
-   the polling design is even needed.
-3. **Decide the ID strategy** from what the Player List response actually
-   contains (recommendation: internal `players.id` + `espn_id`/`tank01_id`
-   lookup columns; migration SQL written before any function is rewired).
-4. **Write `supabase/functions/_shared/tank01.ts`** — same shape as
+The player/injury/schedule half is unblocked and can start now. The
+scoring half waits on two captures.
+
+**Now — no further input needed:**
+
+1. **Save the three captured responses** into
+   `reference/tank01-samples/` as parser fixtures.
+2. **Write `supabase/functions/_shared/tank01.ts`** — same shape as
    `_shared/espn.ts` (`fetchJson` + timeout/retry/concurrency helpers +
    typed endpoint wrappers), plus the RapidAPI auth headers
-   (`x-rapidapi-key`, `x-rapidapi-host`) and the call-budget counter.
-   Validate against the saved fixtures.
-5. **Rewire the jobs:**
-   - `sync-players` → Get Player List (1 call), drop the 32-call loop.
-   - **New `sync-injuries`** → NFL Injury List (1 call), split out so
-     injury freshness doesn't require re-pulling the whole player pool.
-   - `sync-schedule` → Get Weekly NFL Schedule.
-   - `sync-scores` → Daily Scoreboard gate + box score only for
-     in-progress/newly-final games containing rostered players.
-6. **Update `0004_cron.sql`** to the cadences in the budget table, and add
-   the new `sync-injuries` job.
-7. **Set the RapidAPI secret**: `supabase secrets set RAPIDAPI_KEY=…`, and
+   (`x-rapidapi-key`, `x-rapidapi-host`), the paginated player-list loop
+   with a page cap, and the call-budget counter. Validate against the
+   fixtures.
+3. **Migration SQL**: add nullable `players.tank01_id` (same value as
+   `id`), and remap `players.nfl_team_id` from ESPN team ids to Tank01's
+   via the abbreviation join. No `roster_picks` / `player_stage_stats`
+   changes.
+4. **Rewire the non-scoring jobs:**
+   - `sync-players` → `getNFLPlayerList`, paginated, filtering
+     `isFreeAgent === "False"` and QB/RB/WR/TE. Drop the 32-call loop.
+   - **New `sync-injuries`** → `getNFLInjuriesByDate` (1 call), with the
+     `Q`/`O`/`IR` map and stale-status clearing.
+   - `sync-schedule` → weekly schedule for `first_kickoff_at`; byes now
+     come from `getNFLTeams.byeWeeks[season]`, not from diffing the
+     scoreboard.
+5. **Set the RapidAPI secret**: `supabase secrets set RAPIDAPI_KEY=…`, and
    update the "Env vars / secrets required" section of
    `supabase/functions/README.md` (currently all ESPN-specific).
+
+**After the two captures land:**
+
+6. **Rewire `sync-scores`** → Daily Scoreboard gate + box score only for
+   in-progress/newly-final games containing rostered players.
+7. **Update `0004_cron.sql`** to the cadences in the budget table, and add
+   the new `sync-injuries` job.
 8. **Delete `_shared/espn.ts`** and the stale ESPN parsing comments.
 9. **End-to-end test** all sync buttons on the commish page (see
    `src/components/commish/SyncPanel.tsx`) and confirm `sync_log` shows
    real success rows — plus one manual cross-check of a real game's TD
    tallies against a known box score — before calling this done.
 
-Steps 4–9 are a straight shot once steps 1–3 are answered. Step 1 is the
-only thing that needs Nate.
+The live-scoring question above still governs step 6's cadence, and the
+Daily Scoreboard capture has to happen during an actual game window.
