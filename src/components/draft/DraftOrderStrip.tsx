@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { PixelPanel } from "@/components/ui/PixelPanel";
 import type { DraftOrderRow, Profile } from "@/lib/types";
 
@@ -30,6 +31,16 @@ export function DraftOrderStrip({
 
   const isMe = onTheClock?.manager_id === currentUserId;
 
+  const stripRef = useRef<HTMLDivElement>(null);
+  const currentPickRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    currentPickRef.current?.scrollIntoView({
+      inline: "center",
+      block: "nearest",
+    });
+  }, [currentPickNumber]);
+
   return (
     <PixelPanel raised className="flex flex-col gap-3">
       <div className="text-center">
@@ -54,7 +65,7 @@ export function DraftOrderStrip({
         )}
       </div>
 
-      <div className="flex gap-1 overflow-x-auto pb-1">
+      <div ref={stripRef} className="flex gap-1 overflow-x-auto pb-1">
         {draftOrder.map((row) => {
           const isCurrent = row.pick_number === currentPickNumber;
           const isPast =
@@ -62,6 +73,7 @@ export function DraftOrderStrip({
           return (
             <div
               key={row.pick_number}
+              ref={isCurrent ? currentPickRef : undefined}
               className={[
                 "flex flex-col items-center justify-center shrink-0 w-16 h-14 border-2 px-1",
                 isCurrent
