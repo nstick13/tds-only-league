@@ -26,6 +26,7 @@ import type {
   ActionResult,
   ManualRosterEditInput,
   ManagerAdminUpdate,
+  ReplaceRosterPickInput,
   SyncSourceTrigger,
 } from "./types";
 
@@ -295,6 +296,55 @@ export async function updateDraftOrderAction(
  * Remove and/or add a player for one manager in one stage; to swap,
  * pass both removePlayerId and addPlayerId in the same call.
  */
+/**
+ * Swaps an already-drafted player for another, keeping the original
+ * manager, roster slot and pick_number.
+ *
+ * Delegates the whole thing to replace_roster_pick (see
+ * supabase/migrations/0009_replace_roster_pick.sql) rather than issuing a
+ * delete and an insert from here. That makes it one transaction: a rejected
+ * insert — the replacement was just taken, the roster trigger fires — rolls
+ * the removal back instead of leaving the manager a player short. It also
+ * preserves pick_number, which the two-statement path dropped.
+ */
+export async function replaceRosterPickAction(
+  input: ReplaceRosterPickInput,
+): Promise<ActionResult> {
+  const commish = await requireCommissioner();
+  if (!commish) return { success: false, message: "Commissioner access required." };
+
+  if (!input.outPlayerId || !input.inPlayerId) {
+    return { success: false, message: "Choose the player to replace and their replacement." };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("replace_roster_pick", {
+    p_stage_id: input.stageId,
+    p_out_player_id: input.outPlayerId,
+    p_in_player_id: input.inPlayerId,
+  });
+
+  if (error) return { success: false, message: friendlyDbError(error.message) };
+
+  const row = (Array.isArray(data) ? data : [data])[0] as
+    | { slot_position: string; pick_number: number | null; out_player_name: string; in_player_name: string }
+    | undefined;
+
+  revalidatePath("/commish");
+  revalidatePath("/my-roster");
+  revalidatePath("/draft");
+  revalidatePath("/standings");
+
+  const where = row?.pick_number != null ? ` (pick #${row.pick_number})` : "";
+  return {
+    success: true,
+    message: row
+      ? `Replaced ${row.out_player_name} with ${row.in_player_name} in the ${row.slot_position} slot${where}.`
+      : "Pick replaced.",
+    data: undefined,
+  };
+}
+
 export async function manualRosterEditAction(
   input: ManualRosterEditInput,
 ): Promise<ActionResult> {

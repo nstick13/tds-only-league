@@ -22,6 +22,15 @@ export interface ManualRosterEditInput {
   slotPosition?: Position;
 }
 
+/** Input for swapping one already-drafted player for another. */
+export interface ReplaceRosterPickInput {
+  stageId: number;
+  /** The drafted player being replaced. Their manager, slot and pick_number carry over. */
+  outPlayerId: string;
+  /** Their replacement. Must be undrafted in this stage and play the slot's position. */
+  inPlayerId: string;
+}
+
 export interface ManagerAdminUpdate {
   profileId: string;
   is_player?: boolean;
