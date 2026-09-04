@@ -6,7 +6,7 @@ import {
   getProfiles,
   getCurrentStage,
   getSyncStatus,
-  getManualSyncCooldown,
+  getManualSyncCooldowns,
 } from "@/lib/db";
 import { PixelPanel } from "@/components/ui/PixelPanel";
 import { SeasonControl } from "@/components/commish/SeasonControl";
@@ -30,13 +30,13 @@ export default async function CommishPage() {
     redirect("/");
   }
 
-  const [stages, managers, profiles, currentStage, syncStatus, syncCooldown] = await Promise.all([
+  const [stages, managers, profiles, currentStage, syncStatus, syncCooldowns] = await Promise.all([
     getStages(),
     getManagers(),
     getProfiles(),
     getCurrentStage(),
     getSyncStatus(),
-    getManualSyncCooldown(),
+    getManualSyncCooldowns(),
   ]);
 
   return (
@@ -60,7 +60,7 @@ export default async function CommishPage() {
 
       <ManagerAdmin profiles={profiles} />
 
-      <SyncPanel syncStatus={syncStatus} cooldown={syncCooldown} />
+      <SyncPanel syncStatus={syncStatus} cooldowns={syncCooldowns} />
     </div>
   );
 }

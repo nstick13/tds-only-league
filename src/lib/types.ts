@@ -114,7 +114,7 @@ export interface WeeklyResult {
   finalized_at: string | null;
 }
 
-/** sync_log table — append-only log of ESPN sync job runs. Backs the "loud staleness" UI. */
+/** sync_log table — append-only log of sync job runs. Backs the data-freshness line and the Commish sync panel. */
 export interface SyncLog {
   id: number;
   source: SyncSource;

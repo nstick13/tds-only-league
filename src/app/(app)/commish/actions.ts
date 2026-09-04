@@ -9,6 +9,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { serviceRoleEnv } from "@/lib/supabase/env";
 import {
   getMyProfile,
   getStages,
@@ -377,9 +378,9 @@ export async function updateManagerAction(update: ManagerAdminUpdate): Promise<A
  * an "advanced" convenience button, not load-bearing for the app.
  */
 /**
- * Edge Function behind each triggerable sync job. These are the four
- * functions actually deployed in supabase/functions/ — sync-players,
- * sync-schedule and sync-scores hit Tank01, apply-locks is DB-only.
+ * Edge Function behind each triggerable sync job. sync-schedule and
+ * apply-locks are deployed too but are not hand-triggerable — they run on
+ * cron and there is nothing useful to force (see SyncSourceTrigger).
  */
 /**
  * Flattens a thrown fetch error into something readable in the UI. Node's
@@ -418,7 +419,7 @@ function redactSecret(text: string, secret?: string): string {
   return out.replace(/sb_(secret|publishable)_\S{8,}/g, "[redacted]");
 }
 
-/** One row of claim_manual_sync's result set (0007_manual_sync_cooldown.sql). */
+/** One row of claim_manual_sync's result set (0008_per_source_sync_cooldown.sql). */
 interface ClaimRow {
   claimed: boolean;
   run_id: number | null;
@@ -428,20 +429,19 @@ interface ClaimRow {
 
 const SYNC_FUNCTION: Record<SyncSourceTrigger, string> = {
   players: "sync-players",
-  schedule: "sync-schedule",
   scores: "sync-scores",
-  locks: "apply-locks",
 };
 
 /**
  * Hand-triggers one of the sync Edge Functions.
  *
- * Rate limited to one manual trigger per hour ACROSS THE WHOLE LEAGUE (not
- * per user, not per job) to protect the Tank01 daily call budget that the
- * cron cadences in supabase/migrations/0004_cron.sql are sized against. The
- * window is claimed in the database rather than here, so it holds across
- * users and app instances and two simultaneous clicks can't both win — see
- * claim_manual_sync in 0007_manual_sync_cooldown.sql.
+ * Rate limited to one trigger per hour PER JOB, league-wide within that job
+ * (not per user), to protect the Tank01 daily call budget that the cron
+ * cadences in supabase/migrations/0004_cron.sql are sized against. Players
+ * and Scores hold independent windows. The window is claimed in the database
+ * rather than here, so it holds across users and app instances and two
+ * simultaneous clicks can't both win — see claim_manual_sync in
+ * 0008_per_source_sync_cooldown.sql.
  *
  * The claim is taken BEFORE the call (so a second click can't slip in while
  * this one is in flight) and released again if the call doesn't go through,
@@ -454,14 +454,19 @@ export async function triggerSyncAction(source: SyncSourceTrigger): Promise<Acti
   const fnName = SYNC_FUNCTION[source];
   if (!fnName) return { success: false, message: `Unknown sync job "${source}".` };
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  // .trim() because a leading/trailing newline is the classic paste artifact
-  // in a dashboard env var, and it is unambiguously not part of the value.
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  if (!supabaseUrl || !serviceKey) {
+  // serviceRoleEnv() trims and names whichever variable is missing (see
+  // src/lib/supabase/env.ts). It throws rather than returning, so catch it
+  // and answer with a message instead of blowing up the commish page.
+  let supabaseUrl: string;
+  let serviceKey: string;
+  try {
+    ({ url: supabaseUrl, serviceKey } = serviceRoleEnv());
+  } catch (err) {
     return {
       success: false,
-      message: "Sync functions aren't configured (missing Supabase env vars).",
+      message: `Sync functions aren't configured: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
     };
   }
 
@@ -502,7 +507,7 @@ export async function triggerSyncAction(source: SyncSourceTrigger): Promise<Acti
     const who = claim.blocked_by ? `${claim.blocked_by} ` : "Someone ";
     return {
       success: false,
-      message: `${who}already ran a sync — manual syncs unlock again ${timeUntil(claim.available_at)}.`,
+      message: `${who}already ran ${fnName} — it unlocks again ${timeUntil(claim.available_at)}.`,
     };
   }
 
@@ -539,7 +544,7 @@ export async function triggerSyncAction(source: SyncSourceTrigger): Promise<Acti
     revalidatePath("/");
     return {
       success: true,
-      message: `${fnName} triggered successfully. Manual syncs unlock again ${timeUntil(claim.available_at)}.`,
+      message: `${fnName} triggered successfully. It unlocks again ${timeUntil(claim.available_at)}.`,
       data: undefined,
     };
   } catch (err) {

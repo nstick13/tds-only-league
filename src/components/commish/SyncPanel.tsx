@@ -6,13 +6,13 @@ import { PixelPanel } from "@/components/ui/PixelPanel";
 import { PixelButton } from "@/components/ui/PixelButton";
 import { timeAgo, timeUntil } from "@/lib/timeAgo";
 import { triggerSyncAction } from "@/app/(app)/commish/actions";
-import type { ManualSyncCooldown, SyncStatusMap } from "@/lib/db/sync";
+import type { ManualSyncCooldownMap, SyncStatusMap } from "@/lib/db/sync";
 import type { SyncSource } from "@/lib/types";
 import type { SyncSourceTrigger } from "@/app/(app)/commish/types";
 
 interface SyncPanelProps {
   syncStatus: SyncStatusMap;
-  cooldown: ManualSyncCooldown;
+  cooldowns: ManualSyncCooldownMap;
 }
 
 const SOURCE_LABEL: Record<SyncSource, string> = {
@@ -25,47 +25,52 @@ const SOURCE_LABEL: Record<SyncSource, string> = {
 /** What each button actually runs, so the panel says which job it fires. */
 const SOURCE_DESCRIPTION: Record<SyncSourceTrigger, string> = {
   players: "sync-players — league-wide player pool + injury status",
-  schedule: "sync-schedule — kickoff times + bye weeks",
   scores: "sync-scores — touchdown tallies for the current stage",
-  locks: "apply-locks — lock any stage past its first kickoff",
 };
 
-/** Every deployed Edge Function in supabase/functions/ is triggerable. */
-const TRIGGERABLE: SyncSourceTrigger[] = ["players", "schedule", "scores", "locks"];
+/**
+ * Hand-triggerable jobs. Schedule and locks run on cron and are status-only
+ * here — see SyncSourceTrigger in the route's types.ts.
+ */
+const TRIGGERABLE: SyncSourceTrigger[] = ["players", "scores"];
 
 /**
  * Manual sync triggers + last-run status per source. Best effort — if the
- * Edge Functions aren't deployed yet, the trigger fails gracefully with a
- * clear message rather than throwing.
+ * Edge Functions aren't reachable, the trigger fails gracefully with a clear
+ * message rather than throwing.
  *
- * Manual triggers are limited to one per hour for the WHOLE LEAGUE (see
- * claim_manual_sync in supabase/migrations/0007_manual_sync_cooldown.sql):
- * the buttons below disable themselves while the window is running, but
- * that's only cosmetic — the database is what enforces it, so a stale page
- * or a second commissioner can't get around it.
+ * Each job is limited to one manual run per hour, league-wide (see
+ * claim_manual_sync in supabase/migrations/0008_per_source_sync_cooldown.sql).
+ * Players and Scores hold independent windows, so a roster refresh never
+ * blocks a score pull mid-game. The buttons disable themselves while a
+ * window runs, but that's cosmetic — the database is what enforces it, so a
+ * stale page or a second commissioner can't get around it.
  */
-export function SyncPanel({ syncStatus, cooldown }: SyncPanelProps) {
+export function SyncPanel({ syncStatus, cooldowns }: SyncPanelProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [pendingSource, setPendingSource] = useState<SyncSourceTrigger | null>(null);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
-  // Re-render on a timer so the countdown ticks down without a reload.
+  // Re-render on a timer so each countdown ticks down without a reload.
   const [now, setNow] = useState(() => Date.now());
 
-  const availableAtMs = cooldown.availableAt ? new Date(cooldown.availableAt).getTime() : null;
-  const coolingDown = availableAtMs != null && availableAtMs > now;
+  // Earliest moment any running window expires — when it passes, pull fresh
+  // server state so that button comes back on its own.
+  const nextUnlockMs = TRIGGERABLE.map((s) => cooldowns[s]?.availableAt)
+    .filter((iso): iso is string => !!iso)
+    .map((iso) => new Date(iso).getTime())
+    .filter((ms) => ms > now)
+    .sort((a, b) => a - b)[0];
 
   useEffect(() => {
-    if (availableAtMs == null) return;
+    if (nextUnlockMs == null) return;
     const id = setInterval(() => {
       const t = Date.now();
       setNow(t);
-      // The window just expired — pull fresh server state so the buttons
-      // come back (and pick up any sync that ran in the meantime).
-      if (t >= availableAtMs) router.refresh();
+      if (t >= nextUnlockMs) router.refresh();
     }, 15_000);
     return () => clearInterval(id);
-  }, [availableAtMs, router]);
+  }, [nextUnlockMs, router]);
 
   function handleTrigger(source: SyncSourceTrigger) {
     setMessage(null);
@@ -74,10 +79,17 @@ export function SyncPanel({ syncStatus, cooldown }: SyncPanelProps) {
       const result = await triggerSyncAction(source);
       setMessage({ text: result.message, ok: result.success });
       setPendingSource(null);
-      // Refresh either way: a success starts the cooldown, and a failure
-      // may mean someone else's cooldown is now in effect.
+      // Refresh either way: a success starts that job's cooldown, and a
+      // failure may mean someone else's cooldown is now in effect.
       router.refresh();
     });
+  }
+
+  /** Cooldown for one job, or null when it's available. */
+  function activeCooldown(source: SyncSourceTrigger) {
+    const cd = cooldowns[source];
+    if (!cd?.availableAt) return null;
+    return new Date(cd.availableAt).getTime() > now ? cd : null;
   }
 
   const sources: SyncSource[] = ["players", "schedule", "scores", "locks"];
@@ -86,11 +98,12 @@ export function SyncPanel({ syncStatus, cooldown }: SyncPanelProps) {
     <PixelPanel raised className="flex flex-col gap-4">
       <h2 className="font-pixel text-sm text-retro-yellow">Sync Data</h2>
       <p className="font-mono text-sm text-retro-offwhite/70">
-        Manual re-triggers for the sync jobs. These normally run on a schedule
-        (see supabase/functions/README.md) — use this only to force a refresh.
-        To protect the Tank01 API call budget, one manual sync per hour is
-        allowed for the whole league: once anyone runs one, all of these are
-        unavailable to everyone until the hour is up.
+        Manual re-triggers for the player and score sync jobs. These normally
+        run on a schedule (see supabase/functions/README.md) — use this only to
+        force a refresh. To protect the Tank01 API call budget, each job can be
+        run once per hour for the whole league: once anyone runs Players,
+        Players is unavailable to everyone until its hour is up. Scores keeps
+        its own separate hour.
       </p>
 
       <div className="flex flex-col gap-1 font-mono text-sm text-retro-offwhite/80">
@@ -114,27 +127,39 @@ export function SyncPanel({ syncStatus, cooldown }: SyncPanelProps) {
       </div>
 
       <div className="flex flex-wrap gap-3">
-        {TRIGGERABLE.map((source) => (
-          <PixelButton
-            key={source}
-            variant="secondary"
-            onClick={() => handleTrigger(source)}
-            disabled={isPending || coolingDown}
-            title={SOURCE_DESCRIPTION[source]}
-          >
-            {isPending && pendingSource === source ? "Syncing..." : `Sync ${SOURCE_LABEL[source]}`}
-          </PixelButton>
-        ))}
+        {TRIGGERABLE.map((source) => {
+          const cooling = activeCooldown(source);
+          return (
+            <PixelButton
+              key={source}
+              variant="secondary"
+              onClick={() => handleTrigger(source)}
+              disabled={isPending || !!cooling}
+              title={SOURCE_DESCRIPTION[source]}
+            >
+              {isPending && pendingSource === source
+                ? "Syncing..."
+                : cooling && cooling.availableAt
+                  ? `${SOURCE_LABEL[source]} ${timeUntil(cooling.availableAt, new Date(now))}`
+                  : `Sync ${SOURCE_LABEL[source]}`}
+            </PixelButton>
+          );
+        })}
       </div>
 
-      {coolingDown && cooldown.availableAt ? (
-        <p className="font-mono text-sm text-retro-offwhite/70">
-          {cooldown.lastTriggeredBy ?? "Someone"} ran{" "}
-          {cooldown.lastSource ? SOURCE_LABEL[cooldown.lastSource] : "a sync"}
-          {cooldown.lastTriggeredAt ? ` ${timeAgo(cooldown.lastTriggeredAt, new Date(now))}` : ""} —
-          manual syncs unlock again {timeUntil(cooldown.availableAt, new Date(now))}.
-        </p>
-      ) : null}
+      {TRIGGERABLE.map((source) => {
+        const cooling = activeCooldown(source);
+        if (!cooling?.availableAt) return null;
+        return (
+          <p key={source} className="font-mono text-sm text-retro-offwhite/70">
+            {cooling.lastTriggeredBy ?? "Someone"} ran {SOURCE_LABEL[source]}
+            {cooling.lastTriggeredAt
+              ? ` ${timeAgo(cooling.lastTriggeredAt, new Date(now))}`
+              : ""}{" "}
+            — unlocks again {timeUntil(cooling.availableAt, new Date(now))}.
+          </p>
+        );
+      })}
 
       {message ? (
         <p

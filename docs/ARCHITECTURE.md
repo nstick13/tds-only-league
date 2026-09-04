@@ -19,7 +19,7 @@ All tables live in the `public` schema, defined in
 | `roster_picks` | The drafted roster: one row per player a manager holds in a stage. `unique(stage_id, player_id)` enforces the exclusive league-wide player pool per stage. The `enforce_roster_limits()` trigger enforces the QB1/RB2/WR2/TE1/6-total roster shape per manager per stage. |
 | `player_stage_stats` | Raw TD counts per player per stage (synced from ESPN box scores). `points` is a generated column computed from the scoring rule — never write it directly. |
 | `weekly_results` | Computed per-manager stage totals/standings, written by a later agent's scoring job (aggregates `roster_picks` × `player_stage_stats`). Not computed live on every read. |
-| `sync_log` | Append-only log of ESPN sync job runs (`source`, `status`, `message`, `player_count`, `ran_at`). Backs "loud staleness" — query the latest row per `source` and show a "last updated X ago" (or warning) in the UI instead of silently trusting data age. |
+| `sync_log` | Append-only log of sync job runs (`source`, `status`, `message`, `player_count`, `ran_at`). Backs the app-wide data-freshness line (`DataFreshness`) — query the latest SUCCESSFUL row per `source` and show "last updated X ago" instead of silently trusting data age. Stated plainly, not as an alarm: the old red flashing banner was replaced because a warning on every page becomes wallpaper. |
 
 ## Roles model
 

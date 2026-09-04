@@ -43,3 +43,22 @@ export function timeUntil(isoTimestamp: string, now: Date = new Date()): string 
   const remainder = minutes % 60;
   return remainder === 0 ? `in ${hours}h` : `in ${hours}h ${remainder}m`;
 }
+
+/**
+ * Long-form relative past time — "12 minutes ago", "2 hours ago". Same
+ * coarse buckets as timeAgo(), spelled out for prose contexts like the
+ * app-wide data-freshness line, where "12m ago" reads as jargon.
+ */
+export function timeAgoLong(isoTimestamp: string, now: Date = new Date()): string {
+  const diffMs = now.getTime() - new Date(isoTimestamp).getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 60_000) return "just now";
+
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}

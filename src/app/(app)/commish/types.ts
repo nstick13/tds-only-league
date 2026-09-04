@@ -31,9 +31,9 @@ export interface ManagerAdminUpdate {
 }
 
 /**
- * Sync jobs the Commish page can hand-trigger — one per deployed Edge
- * Function in supabase/functions/. Same values as SyncSource (a job that
- * writes a sync_log row is a job you can trigger), kept as its own name so
- * the button list and the sync_log status list stay separately readable.
+ * Sync jobs the Commish page can hand-trigger. A SUBSET of SyncSource:
+ * schedule and locks run on their own cron and there is no useful reason to
+ * force them by hand (schedule barely changes; apply-locks runs every five
+ * minutes and is DB-only), so they are status-only in the panel.
  */
-export type SyncSourceTrigger = "players" | "schedule" | "scores" | "locks";
+export type SyncSourceTrigger = "players" | "scores";

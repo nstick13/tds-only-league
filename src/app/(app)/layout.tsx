@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getMyProfile } from "@/lib/db/profiles";
 import { PixelButton } from "@/components/ui/PixelButton";
-import { StalenessBanner } from "@/components/StalenessBanner";
+import { DataFreshness } from "@/components/DataFreshness";
 
 /**
  * Authenticated app shell. Every route under src/app/(app)/ renders inside
@@ -79,7 +79,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <StalenessBanner />
+      <DataFreshness />
 
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-6">{children}</main>
     </div>
