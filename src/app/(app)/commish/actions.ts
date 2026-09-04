@@ -386,13 +386,36 @@ export async function updateManagerAction(update: ManagerAdminUpdate): Promise<A
  * fetch reports nearly everything as a bare "fetch failed" and puts the
  * real reason on .cause, so surface both.
  */
-function describeFetchError(err: unknown): string {
-  if (!(err instanceof Error)) return String(err);
-  const cause = err.cause;
-  if (cause instanceof Error && cause.message && cause.message !== err.message) {
-    return `${err.message}: ${cause.message}`;
+function describeFetchError(err: unknown, secret?: string): string {
+  const raw = !(err instanceof Error)
+    ? String(err)
+    : err.cause instanceof Error && err.cause.message && err.cause.message !== err.message
+      ? `${err.message}: ${err.cause.message}`
+      : err.message || "unknown error";
+  return redactSecret(raw, secret);
+}
+
+/**
+ * Strips the service-role key out of anything we are about to show a user or
+ * write to a log. Some errors quote the input that caused them — an invalid
+ * Authorization header value gets echoed verbatim by Headers.append — so any
+ * error text derived from a request carrying the key has to be scrubbed
+ * before it leaves the server. Matches the raw key and its whitespace-
+ * stripped form, since a mangled key is exactly the case that throws.
+ */
+function redactSecret(text: string, secret?: string): string {
+  let out = text;
+  if (secret) {
+    // Both the literal env value and its whitespace-stripped form: a mangled
+    // key is exactly the case that throws, and the error may quote either.
+    for (const needle of new Set([secret, secret.replace(/\s+/g, "")])) {
+      if (needle.length >= 8) out = out.split(needle).join("[redacted]");
+    }
   }
-  return err.message || "unknown error";
+  // Backstop, applied even with no secret in hand: a key echoed by a response
+  // body may not be the one we sent. Deliberately excludes whitespace so it
+  // stops at the key and doesn't swallow the prose after it.
+  return out.replace(/sb_(secret|publishable)_\S{8,}/g, "[redacted]");
 }
 
 /** One row of claim_manual_sync's result set (0007_manual_sync_cooldown.sql). */
@@ -431,12 +454,28 @@ export async function triggerSyncAction(source: SyncSourceTrigger): Promise<Acti
   const fnName = SYNC_FUNCTION[source];
   if (!fnName) return { success: false, message: `Unknown sync job "${source}".` };
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  // .trim() because a leading/trailing newline is the classic paste artifact
+  // in a dashboard env var, and it is unambiguously not part of the value.
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!supabaseUrl || !serviceKey) {
     return {
       success: false,
       message: "Sync functions aren't configured (missing Supabase env vars).",
+    };
+  }
+
+  // Whitespace INSIDE the key is a different story: it is never valid, but
+  // silently deleting it would paper over a corrupted env var, and the header
+  // it produces throws an error that quotes the key back. Fail early with a
+  // message that says what to fix and never names the value.
+  if (/\s/.test(serviceKey)) {
+    return {
+      success: false,
+      message:
+        "SUPABASE_SERVICE_ROLE_KEY contains a space or line break — it was " +
+        "probably wrapped when pasted. Re-paste it as a single unbroken line " +
+        "in the Vercel project's environment variables and redeploy.",
     };
   }
 
@@ -490,7 +529,9 @@ export async function triggerSyncAction(source: SyncSourceTrigger): Promise<Acti
       await releaseClaim();
       return {
         success: false,
-        message: `${fnName} responded with ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}.`,
+        message: `${fnName} responded with ${res.status}${
+          body ? `: ${redactSecret(body, serviceKey).slice(0, 200)}` : ""
+        }.`,
       };
     }
 
@@ -511,10 +552,13 @@ export async function triggerSyncAction(source: SyncSourceTrigger): Promise<Acti
     // undici nests the useful part in err.cause ("fetch failed" ->
     // "getaddrinfo ENOTFOUND ..."), so unwrap one level. The URL is the
     // NEXT_PUBLIC_ Supabase URL, so it is safe to show.
-    console.error(`triggerSyncAction: POST ${url} threw`, err);
+    console.error(
+      `triggerSyncAction: POST ${url} threw`,
+      redactSecret(err instanceof Error ? (err.stack ?? err.message) : String(err), serviceKey),
+    );
     return {
       success: false,
-      message: `Couldn't reach ${fnName} at ${url} — ${describeFetchError(err)}`,
+      message: `Couldn't reach ${fnName} at ${url} — ${describeFetchError(err, serviceKey)}`,
     };
   }
 }
