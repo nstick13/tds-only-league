@@ -381,6 +381,20 @@ export async function updateManagerAction(update: ManagerAdminUpdate): Promise<A
  * functions actually deployed in supabase/functions/ — sync-players,
  * sync-schedule and sync-scores hit Tank01, apply-locks is DB-only.
  */
+/**
+ * Flattens a thrown fetch error into something readable in the UI. Node's
+ * fetch reports nearly everything as a bare "fetch failed" and puts the
+ * real reason on .cause, so surface both.
+ */
+function describeFetchError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const cause = err.cause;
+  if (cause instanceof Error && cause.message && cause.message !== err.message) {
+    return `${err.message}: ${cause.message}`;
+  }
+  return err.message || "unknown error";
+}
+
 /** One row of claim_manual_sync's result set (0007_manual_sync_cooldown.sql). */
 interface ClaimRow {
   claimed: boolean;
@@ -487,11 +501,20 @@ export async function triggerSyncAction(source: SyncSourceTrigger): Promise<Acti
       message: `${fnName} triggered successfully. Manual syncs unlock again ${timeUntil(claim.available_at)}.`,
       data: undefined,
     };
-  } catch {
+  } catch (err) {
     await releaseClaim();
+    // Report what actually went wrong instead of guessing at a cause. This
+    // branch catches ANY throw from the call — a malformed
+    // NEXT_PUBLIC_SUPABASE_URL, DNS/TLS failure, a timeout — and the old
+    // message asserted "not deployed yet" for all of them, which sent
+    // debugging down the wrong path when the functions were in fact live.
+    // undici nests the useful part in err.cause ("fetch failed" ->
+    // "getaddrinfo ENOTFOUND ..."), so unwrap one level. The URL is the
+    // NEXT_PUBLIC_ Supabase URL, so it is safe to show.
+    console.error(`triggerSyncAction: POST ${url} threw`, err);
     return {
       success: false,
-      message: `Couldn't reach ${fnName} — it may not be deployed yet. See supabase/functions/README.md.`,
+      message: `Couldn't reach ${fnName} at ${url} — ${describeFetchError(err)}`,
     };
   }
 }

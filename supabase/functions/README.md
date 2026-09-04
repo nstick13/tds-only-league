@@ -1,7 +1,10 @@
 # Tank01 sync Edge Functions
 
 Four Deno Edge Functions that keep `players`, `player_stage_stats`, and `stages`
-in sync with ESPN's unofficial site API, plus shared helpers in `_shared/`. See
+in sync with the Tank01 NFL API (RapidAPI), plus shared helpers in `_shared/`.
+Sections below that still describe ESPN endpoints are stale — see
+`_shared/tank01.ts` and `docs/TANK01_MIGRATION.md` for what each job actually
+calls. See
 `docs/ARCHITECTURE.md` for the table shapes and the "loud staleness" convention
 (`sync_log`) these all write to.
 
