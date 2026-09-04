@@ -116,10 +116,3 @@ $$;
 comment on function public.release_manual_sync is
   'Deletes the caller''s own just-made claim for its source when the sync '
   'call failed, so a failed trigger does not burn that job''s cooldown.';
-
--- ----------------------------------------------------------------------------
--- Verify (each source holds its own hour):
---   select * from public.claim_manual_sync('players');  -- claimed = true
---   select * from public.claim_manual_sync('players');  -- claimed = false
---   select * from public.claim_manual_sync('scores');   -- claimed = true
--- ----------------------------------------------------------------------------

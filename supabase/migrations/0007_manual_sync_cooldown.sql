@@ -169,10 +169,3 @@ create policy "manual_sync_runs_select_authenticated"
 grant execute on function public.claim_manual_sync(text) to authenticated;
 grant execute on function public.release_manual_sync(bigint) to authenticated;
 grant execute on function public.manual_sync_cooldown() to authenticated;
-
--- ----------------------------------------------------------------------------
--- Verify:
---   select * from public.claim_manual_sync('players');  -- claimed = true
---   select * from public.claim_manual_sync('scores');   -- claimed = false, available_at ~1h out
---   select * from public.manual_sync_runs order by triggered_at desc limit 5;
--- ----------------------------------------------------------------------------

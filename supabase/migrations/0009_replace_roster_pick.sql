@@ -123,12 +123,3 @@ comment on function public.replace_roster_pick is
   'manager, slot_position and pick_number. Commissioner only.';
 
 grant execute on function public.replace_roster_pick(smallint, text, text) to authenticated;
-
--- ----------------------------------------------------------------------------
--- Verify (on a stage with picks):
---   select * from public.replace_roster_pick(1::smallint, '<drafted_id>', '<free_id>');
---   -- expect one row echoing manager/slot/pick_number and both player names
---   select player_id, slot_position, pick_number from public.roster_picks
---    where stage_id = 1 order by pick_number;
---   -- expect the new player sitting on the OLD player's pick_number
--- ----------------------------------------------------------------------------
