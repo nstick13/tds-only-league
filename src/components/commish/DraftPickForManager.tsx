@@ -6,6 +6,7 @@ import { PixelPanel } from "@/components/ui/PixelPanel";
 import { PixelButton } from "@/components/ui/PixelButton";
 import { Badge } from "@/components/ui/Badge";
 import { createClient } from "@/lib/supabase/client";
+import { subscribeToDraft } from "@/lib/realtime";
 import { draftPlayer, undoPick } from "@/app/(app)/draft/actions";
 import { computeCurrentPick } from "@/components/draft/draftLogic";
 import { POSITIONS, ROSTER_SHAPE, type Position } from "@/lib/roster";
@@ -55,6 +56,22 @@ export function DraftPickForManager({ currentStage, managers }: DraftPickForMana
   useEffect(() => {
     loadDraftState();
   }, [loadDraftState]);
+
+  // Live updates: this panel is open on the commissioner's screen for the
+  // length of a draft, so a pick made anywhere else — a manager in the draft
+  // room, another commissioner here — has to land without a reload, or the
+  // commissioner picks against a stale board and picks for the wrong person.
+  useEffect(() => {
+    const unsubscribe = subscribeToDraft(currentStage.id, {
+      onRosterPickChange: () => {
+        loadDraftState();
+      },
+      onDraftOrderChange: () => {
+        loadDraftState();
+      },
+    });
+    return unsubscribe;
+  }, [currentStage.id, loadDraftState]);
 
   const { pickNumber, managerId: onTheClockId } = useMemo(
     () => computeCurrentPick(draftOrder, picks.length),
