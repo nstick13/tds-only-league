@@ -18,6 +18,7 @@ import {
   getRosterPicks,
 } from "@/lib/db";
 import { generateDraftOrder, type StandingsSeed } from "@/lib/draftOrder";
+import { timeUntil } from "@/lib/timeAgo";
 import { computeStandings } from "@/lib/standings";
 import type { PlayerStageStats } from "@/lib/types";
 import type {
@@ -375,9 +376,46 @@ export async function updateManagerAction(update: ManagerAdminUpdate): Promise<A
  * function isn't deployed yet or the request otherwise fails — this is
  * an "advanced" convenience button, not load-bearing for the app.
  */
+/**
+ * Edge Function behind each triggerable sync job. These are the four
+ * functions actually deployed in supabase/functions/ — sync-players,
+ * sync-schedule and sync-scores hit Tank01, apply-locks is DB-only.
+ */
+/** One row of claim_manual_sync's result set (0007_manual_sync_cooldown.sql). */
+interface ClaimRow {
+  claimed: boolean;
+  run_id: number | null;
+  available_at: string;
+  blocked_by: string | null;
+}
+
+const SYNC_FUNCTION: Record<SyncSourceTrigger, string> = {
+  players: "sync-players",
+  schedule: "sync-schedule",
+  scores: "sync-scores",
+  locks: "apply-locks",
+};
+
+/**
+ * Hand-triggers one of the sync Edge Functions.
+ *
+ * Rate limited to one manual trigger per hour ACROSS THE WHOLE LEAGUE (not
+ * per user, not per job) to protect the Tank01 daily call budget that the
+ * cron cadences in supabase/migrations/0004_cron.sql are sized against. The
+ * window is claimed in the database rather than here, so it holds across
+ * users and app instances and two simultaneous clicks can't both win — see
+ * claim_manual_sync in 0007_manual_sync_cooldown.sql.
+ *
+ * The claim is taken BEFORE the call (so a second click can't slip in while
+ * this one is in flight) and released again if the call doesn't go through,
+ * so a failed trigger doesn't cost the league its hour.
+ */
 export async function triggerSyncAction(source: SyncSourceTrigger): Promise<ActionResult> {
   const commish = await requireCommissioner();
   if (!commish) return { success: false, message: "Commissioner access required." };
+
+  const fnName = SYNC_FUNCTION[source];
+  if (!fnName) return { success: false, message: `Unknown sync job "${source}".` };
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -388,7 +426,38 @@ export async function triggerSyncAction(source: SyncSourceTrigger): Promise<Acti
     };
   }
 
-  const fnName = source === "players" ? "sync-players" : "sync-scores";
+  // claim_manual_sync is a set-returning function, so rpc() hands back a
+  // one-row array. claimed=false means the league's hourly window is still
+  // running — that's a normal answer, not an error.
+  const supabase = await createClient();
+  const { data: claimData, error: claimError } = await supabase.rpc("claim_manual_sync", {
+    p_source: source,
+  });
+
+  if (claimError) {
+    return { success: false, message: `Couldn't check the sync cooldown: ${claimError.message}` };
+  }
+
+  const claimRows = (Array.isArray(claimData) ? claimData : [claimData]) as ClaimRow[];
+  const claim: ClaimRow | undefined = claimRows[0] ?? undefined;
+
+  if (!claim) {
+    return { success: false, message: "Couldn't check the sync cooldown — please try again." };
+  }
+
+  if (!claim.claimed) {
+    const who = claim.blocked_by ? `${claim.blocked_by} ` : "Someone ";
+    return {
+      success: false,
+      message: `${who}already ran a sync — manual syncs unlock again ${timeUntil(claim.available_at)}.`,
+    };
+  }
+
+  const releaseClaim = async () => {
+    if (claim.run_id == null) return;
+    await supabase.rpc("release_manual_sync", { p_run_id: claim.run_id });
+  };
+
   const url = `${supabaseUrl.replace(/\/$/, "")}/functions/v1/${fnName}`;
 
   try {
@@ -404,6 +473,7 @@ export async function triggerSyncAction(source: SyncSourceTrigger): Promise<Acti
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
+      await releaseClaim();
       return {
         success: false,
         message: `${fnName} responded with ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}.`,
@@ -412,8 +482,13 @@ export async function triggerSyncAction(source: SyncSourceTrigger): Promise<Acti
 
     revalidatePath("/commish");
     revalidatePath("/");
-    return { success: true, message: `${fnName} triggered successfully.`, data: undefined };
+    return {
+      success: true,
+      message: `${fnName} triggered successfully. Manual syncs unlock again ${timeUntil(claim.available_at)}.`,
+      data: undefined,
+    };
   } catch {
+    await releaseClaim();
     return {
       success: false,
       message: `Couldn't reach ${fnName} — it may not be deployed yet. See supabase/functions/README.md.`,

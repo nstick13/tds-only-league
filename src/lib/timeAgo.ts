@@ -25,3 +25,21 @@ export function timeAgo(isoTimestamp: string, now: Date = new Date()): string {
 export function minutesAgo(isoTimestamp: string, now: Date = new Date()): number {
   return Math.floor((now.getTime() - new Date(isoTimestamp).getTime()) / 60_000);
 }
+
+/**
+ * Formats a FUTURE ISO timestamp as "in Xm" / "in Xh Xm" — the mirror of
+ * timeAgo(), used for the manual-sync cooldown ("unlocks again in 42m").
+ * Returns "now" once the timestamp is in the past, so a stale render reads
+ * as available rather than as a negative countdown.
+ */
+export function timeUntil(isoTimestamp: string, now: Date = new Date()): string {
+  const diffMs = new Date(isoTimestamp).getTime() - now.getTime();
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return "now";
+
+  const minutes = Math.ceil(diffMs / 60_000);
+  if (minutes < 60) return `in ${minutes}m`;
+
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder === 0 ? `in ${hours}h` : `in ${hours}h ${remainder}m`;
+}

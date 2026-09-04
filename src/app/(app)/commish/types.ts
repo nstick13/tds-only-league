@@ -30,4 +30,10 @@ export interface ManagerAdminUpdate {
   manager_slot?: number | null;
 }
 
-export type SyncSourceTrigger = "players" | "scores";
+/**
+ * Sync jobs the Commish page can hand-trigger — one per deployed Edge
+ * Function in supabase/functions/. Same values as SyncSource (a job that
+ * writes a sync_log row is a job you can trigger), kept as its own name so
+ * the button list and the sync_log status list stay separately readable.
+ */
+export type SyncSourceTrigger = "players" | "schedule" | "scores" | "locks";
