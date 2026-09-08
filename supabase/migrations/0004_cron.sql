@@ -39,6 +39,12 @@
 -- Total steady-state is a small fraction of the 1,000/day allowance, so the
 -- headroom is there if these cadences ever need tightening.
 --
+-- SUPERSEDED BY 0011: the game-day windows described below were replaced by a
+-- single */30 * * * * score schedule. They assumed games are played Thursday
+-- through Monday, which a Wednesday opener (and Black Friday, and Christmas)
+-- breaks. The section is kept for the history of why the windows existed;
+-- do not re-apply it. See 0011_sync_scores_every_day.sql.
+--
 -- GAME-DAY WINDOWS — IMPORTANT: pg_cron schedules are UTC
 -- ----------------------------------------------------------------------------
 -- NFL games are played in US Eastern time, and every night game runs past
