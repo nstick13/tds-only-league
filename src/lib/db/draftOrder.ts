@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createBrowserClient } from "@/lib/supabase/client";
 import type { DraftOrderRow } from "@/lib/types";
 
-/** Overall snake-draft pick order for a stage (48 rows: 8 managers x 6 rounds), ordered by pick_number. */
+/** Overall snake-draft pick order for a stage (8 managers x ROSTER_SIZE rounds), ordered by pick_number. */
 export async function getDraftOrder(stageId: number): Promise<DraftOrderRow[]> {
   const supabase = await createClient();
   const { data, error } = await supabase

@@ -1,9 +1,12 @@
 /**
- * Draft order generation — pure logic, no I/O. Produces the 48-row
- * (8 managers x 6 rounds) overall snake-draft pick order for a stage.
+ * Draft order generation — pure logic, no I/O. Produces the overall
+ * snake-draft pick order for a stage: one round per roster slot, so
+ * 8 managers x ROSTER_SIZE rounds (currently 7 -> 56 picks).
  * Commissioner server actions (src/app/(app)/commish/actions.ts) call
  * this and persist the result to the draft_order table.
  */
+
+import { ROSTER_SIZE } from "@/lib/roster";
 
 /** Minimal shape of a previous stage's standings row needed to seed a redraft. */
 export interface StandingsSeed {
@@ -40,17 +43,18 @@ export function seedRoundOneFromStandings(
 }
 
 /**
- * Generates the full 48-pick overall snake draft order for a stage.
+ * Generates the full overall snake draft order for a stage.
  *
  * - `previousStandings === null` (Week 1 / the very first draftable
  *   stage): the round-1 base order is a RANDOM shuffle of `managerIds`.
  * - Otherwise: the round-1 base order is seeded from `previousStandings`
  *   with last place picking first (see seedRoundOneFromStandings).
  * - Snake: round 1 = base order, round 2 = reversed, round 3 = base, ...
- *   alternating for 6 rounds total (QB/RB/RB/WR/WR/TE roster shape ->
- *   6 picks per manager). So the previous week's 1st-place manager picks
- *   8th overall (last of round 1) and then 9th overall (first of round 2)
- *   back-to-back, exactly as the "snake" name implies.
+ *   alternating for ROSTER_SIZE rounds — one round per roster slot, since
+ *   every manager fills their whole roster in the draft. So the previous
+ *   week's 1st-place manager picks 8th overall (last of round 1) and then
+ *   9th overall (first of round 2) back-to-back, exactly as the "snake"
+ *   name implies.
  *
  * Deterministic given inputs, except for the Week 1 random shuffle branch.
  */
@@ -64,7 +68,10 @@ export function generateDraftOrder(
       : seedRoundOneFromStandings(previousStandings);
 
   const managersPerRound = baseOrder.length;
-  const rounds = 6;
+  // One round per roster slot. Derived, not a literal, so a roster-shape
+  // change (e.g. the move to two QBs) grows the draft without a second edit
+  // here — the two numbers can never drift apart.
+  const rounds = ROSTER_SIZE;
 
   const picks: string[] = [];
   for (let round = 0; round < rounds; round++) {

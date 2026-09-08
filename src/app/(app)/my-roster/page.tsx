@@ -12,7 +12,7 @@ const SLOT_ORDER: Position[] = POSITIONS.flatMap((pos) =>
 
 /**
  * /my-roster — the signed-in manager's roster for the current stage: the
- * 6 slots laid out by ROSTER_SHAPE, each filled slot showing the player's
+ * Slots laid out by ROSTER_SHAPE, each filled slot showing the player's
  * team/status/bye, plus live points once player_stage_stats exist for the
  * stage (player_stage_stats isn't in the shared src/lib/db barrel, so it's
  * queried locally here).

@@ -70,7 +70,7 @@ export function isRosterFull(
 }
 
 export interface CurrentPick {
-  /** Overall pick number, 1..48. Null once the draft is complete (all 48 picks made, or draft_order is empty). */
+  /** Overall pick number, 1-based. Null once the draft is complete (every draft_order row used, or draft_order is empty). */
   pickNumber: number | null;
   /** The manager on the clock for pickNumber, or null if unassigned/draft complete. */
   managerId: string | null;

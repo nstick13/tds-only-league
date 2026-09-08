@@ -203,7 +203,10 @@ function friendlyInsertError(message: string): string {
     return "That player was just taken.";
   }
   if (message.includes("Roster limit exceeded")) {
-    return message.includes("already holds 6 players")
+    // Match on the wording, not the number — the roster total is a league
+    // setting (see ROSTER_SIZE) and this string quietly stopped matching
+    // when it changed from 6 to 7.
+    return /already holds \d+ players/.test(message)
       ? "Roster is already full."
       : "That position slot is already full.";
   }

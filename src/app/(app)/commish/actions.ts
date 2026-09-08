@@ -235,7 +235,7 @@ export async function finalizeAndAdvanceAction(stageId: number): Promise<ActionR
 }
 
 /**
- * Overwrites a stage's draft order: re-snakes the 48 picks from a new
+ * Overwrites a stage's draft order: re-snakes every pick from a new
  * round-1 seed order (a permutation of the 8 seated managers). Refuses
  * if the stage already has picks made (roster_picks rows) to avoid
  * invalidating an in-progress draft board.
