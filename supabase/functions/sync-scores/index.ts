@@ -29,7 +29,7 @@
 // ------------------------------------------------------------------------
 // Tank01 Pro is 1,000 calls/day, so this function refuses to re-fetch a box
 // score that cannot have changed: games that have not kicked off yet have no
-// stats, and final games are frozen. See shouldFetch() below.
+// stats, and final games are frozen. See shouldFetch() in _shared/gameFetch.ts.
 //
 // This is safe with a partial-week upsert because an NFL player appears in
 // at most ONE game per stage — so the per-player rows produced by fetched
@@ -43,14 +43,12 @@ import {
   getBoxScore,
   getGamesForWeek,
   hasAnyTd,
-  isFinal,
-  isScheduled,
-  kickoffAt,
   mapWithConcurrency,
   type Tank01Game,
   tdsFor,
   type TdTally,
 } from "../_shared/tank01.ts";
+import { shouldFetch } from "../_shared/gameFetch.ts";
 import {
   currentSeason,
   isAddressable,
@@ -59,14 +57,6 @@ import {
 } from "../_shared/stage.ts";
 
 const GAME_FETCH_CONCURRENCY = 4;
-
-/**
- * Generous upper bound on how long after kickoff a game can still be
- * producing stats (regulation + overtime + stat settling). Used only to
- * decide whether a previous successful run definitely saw this game's final
- * box score; see shouldFetch().
- */
-const GAME_SETTLED_MS = 6 * 60 * 60 * 1000;
 
 /**
  * Timestamp of the last sync-scores run that fetched every game cleanly.
@@ -93,36 +83,6 @@ async function lastCleanRunAt(supabase: any): Promise<Date | null> {
   if (error || !data || data.length === 0) return null;
   const d = new Date(data[0].ran_at);
   return Number.isNaN(d.getTime()) ? null : d;
-}
-
-interface SkipDecision {
-  fetch: boolean;
-  reason: "scheduled" | "final-already-ingested" | "live" | "final-unseen";
-}
-
-/**
- * Decide whether this game's box score can still tell us something new.
- *
- * - Not kicked off  -> no stats exist yet. Never fetch.
- * - Final           -> stats are frozen, so fetch it exactly once: skip only
- *                      when a previous run that fetched EVERY game cleanly
- *                      happened well after this game must have ended. (A run
- *                      with any failed fetch logs status 'error' and so never
- *                      advances this watermark — deliberately conservative.)
- * - Anything else   -> in progress / delayed / unknown. Fetch.
- */
-function shouldFetch(game: Tank01Game, lastClean: Date | null): SkipDecision {
-  if (isScheduled(game)) return { fetch: false, reason: "scheduled" };
-  if (!isFinal(game)) return { fetch: true, reason: "live" };
-
-  const kickoff = kickoffAt(game);
-  if (
-    lastClean && kickoff &&
-    lastClean.getTime() > kickoff.getTime() + GAME_SETTLED_MS
-  ) {
-    return { fetch: false, reason: "final-already-ingested" };
-  }
-  return { fetch: true, reason: "final-unseen" };
 }
 
 Deno.serve(async (req: Request) => {
@@ -181,10 +141,15 @@ Deno.serve(async (req: Request) => {
     const toFetch: Tank01Game[] = [];
     let skippedScheduled = 0;
     let skippedFinal = 0;
+    let staleScheduled = 0;
     for (const game of games) {
       const decision = shouldFetch(game, lastClean);
-      if (decision.fetch) toFetch.push(game);
-      else if (decision.reason === "scheduled") skippedScheduled++;
+      if (decision.fetch) {
+        toFetch.push(game);
+        // Counted separately so a provider whose statuses are stuck shows up
+        // in the sync log instead of hiding inside the fetched-games total.
+        if (decision.reason === "stale-scheduled") staleScheduled++;
+      } else if (decision.reason === "scheduled") skippedScheduled++;
       else skippedFinal++;
     }
 
@@ -287,7 +252,10 @@ Deno.serve(async (req: Request) => {
     const msg =
       `Stage "${stage.name}": fetched ${results.length}/${toFetch.length} ` +
       `box scores of ${games.length} games ` +
-      `(skipped ${skippedFinal} already-final, ${skippedScheduled} not yet kicked off). ` +
+      `(skipped ${skippedFinal} already-final, ${skippedScheduled} not yet kicked off` +
+      (staleScheduled > 0
+        ? `, ${staleScheduled} still marked scheduled long after kickoff — fetched anyway`
+        : "") + `). ` +
       `Tallied ${playerIds.length} players, ${scorers} with TDs, upserted ${rows.length} ` +
       `(${skippedCount} skipped — not in players table). ` +
       (errors.length > 0
@@ -307,6 +275,7 @@ Deno.serve(async (req: Request) => {
       gamesFailed: errors.length,
       gamesSkippedFinal: skippedFinal,
       gamesSkippedScheduled: skippedScheduled,
+      gamesStaleScheduled: staleScheduled,
       playersTallied: playerIds.length,
       playersWithTds: scorers,
       playersUpserted: rows.length,
