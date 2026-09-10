@@ -188,8 +188,6 @@ export async function finalizeAndAdvanceAction(stageId: number): Promise<ActionR
 
   if (!nextStage) {
     revalidatePath("/commish");
-    revalidatePath("/standings");
-    revalidatePath("/history");
     revalidatePath("/");
     return {
       success: true,
@@ -201,8 +199,7 @@ export async function finalizeAndAdvanceAction(stageId: number): Promise<ActionR
   const nextExistingOrder = await getDraftOrder(nextStage.id);
   if (nextExistingOrder.some((r) => r.manager_id)) {
     revalidatePath("/commish");
-    revalidatePath("/standings");
-    revalidatePath("/history");
+    revalidatePath("/");
     return {
       success: true,
       message: `${stage.name} finalized, but ${nextStage.name} already had a draft order — left as-is.`,
@@ -223,10 +220,8 @@ export async function finalizeAndAdvanceAction(stageId: number): Promise<ActionR
   if (openError) return { success: false, message: friendlyDbError(openError.message) };
 
   revalidatePath("/commish");
-  revalidatePath("/standings");
-  revalidatePath("/history");
-  revalidatePath("/draft");
   revalidatePath("/");
+  revalidatePath("/draft");
   return {
     success: true,
     message: `${stage.name} finalized. ${nextStage.name} draft opened, seeded by standings (last place picks first).`,
@@ -331,9 +326,8 @@ export async function replaceRosterPickAction(
     | undefined;
 
   revalidatePath("/commish");
-  revalidatePath("/my-roster");
+  revalidatePath("/");
   revalidatePath("/draft");
-  revalidatePath("/standings");
 
   const where = row?.pick_number != null ? ` (pick #${row.pick_number})` : "";
   return {
@@ -382,7 +376,7 @@ export async function manualRosterEditAction(
   }
 
   revalidatePath("/commish");
-  revalidatePath("/my-roster");
+  revalidatePath("/");
   revalidatePath("/draft");
   return { success: true, message: "Roster updated.", data: undefined };
 }

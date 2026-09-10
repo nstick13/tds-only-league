@@ -127,7 +127,7 @@ export async function draftPlayer(
   }
 
   revalidatePath("/draft");
-  revalidatePath("/my-roster");
+  revalidatePath("/");
   return { ok: true };
 }
 
@@ -194,7 +194,7 @@ export async function undoPick(
   }
 
   revalidatePath("/draft");
-  revalidatePath("/my-roster");
+  revalidatePath("/");
   return { ok: true };
 }
 

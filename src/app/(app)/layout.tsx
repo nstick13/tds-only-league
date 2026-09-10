@@ -27,11 +27,13 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const profile = await getMyProfile();
   const displayName = profile?.display_name ?? user.email ?? "Manager";
 
+  // Two destinations only: the draft board, and everything else. The league
+  // page at / carries this week's standings, the season table and every past
+  // week, each expandable down to rosters — which is what the old My Roster,
+  // Standings and History tabs were showing slices of.
   const navLinks = [
+    { href: "/", label: "League" },
     { href: "/draft", label: "Draft" },
-    { href: "/my-roster", label: "My Roster" },
-    { href: "/standings", label: "Standings" },
-    { href: "/history", label: "History" },
   ];
 
   return (
