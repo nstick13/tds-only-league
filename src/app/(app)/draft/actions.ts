@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { notifyOnTheClock } from "@/lib/push/notify";
 import { createClient } from "@/lib/supabase/server";
 import { getStageById } from "@/lib/db/stages";
 import { getDraftOrder } from "@/lib/db/draftOrder";
@@ -124,6 +125,14 @@ export async function draftPlayer(
 
   if (insertError) {
     return { ok: false, error: friendlyInsertError(insertError.message) };
+  }
+
+  // Tell whoever is up next. The pick is already committed, so a push
+  // failure must not surface as a failed draft — notifyOnTheClock swallows
+  // its own errors, and this is awaited only to keep it inside the request.
+  const next = computeCurrentPick(draftOrder, picks.length + 1);
+  if (next.managerId) {
+    await notifyOnTheClock(next.managerId, stage.name, next.pickNumber!);
   }
 
   revalidatePath("/draft");

@@ -8,6 +8,7 @@
  * raw Postgres RLS-denial message.
  */
 import { revalidatePath } from "next/cache";
+import { notifyDraftOpen, notifyOnTheClock, notifyWeekFinal } from "@/lib/push/notify";
 import { createClient } from "@/lib/supabase/server";
 import { serviceRoleEnv } from "@/lib/supabase/env";
 import {
@@ -116,6 +117,13 @@ export async function openSeasonAction(): Promise<ActionResult> {
     .eq("id", firstStage.id);
   if (statusError) return { success: false, message: friendlyDbError(statusError.message) };
 
+  // generateDraftOrder returns manager ids in pick order, so index 0 is the
+  // manager on the clock for pick #1.
+  await notifyDraftOpen(firstStage.name);
+  if (picks[0]) {
+    await notifyOnTheClock(picks[0], firstStage.name, 1);
+  }
+
   revalidatePath("/commish");
   revalidatePath("/draft");
   revalidatePath("/");
@@ -181,6 +189,14 @@ export async function finalizeAndAdvanceAction(stageId: number): Promise<ActionR
     .eq("id", stageId);
   if (finalizeError) return { success: false, message: friendlyDbError(finalizeError.message) };
 
+  // Announced once here rather than at each return below, so every exit path
+  // (season over, next stage already seeded, normal advance) tells the league.
+  const winner = standings.find((s) => s.rank === 1) ?? null;
+  const winnerName = winner
+    ? managers.find((m) => m.id === winner.manager_id)?.display_name ?? "Someone"
+    : null;
+  await notifyWeekFinal(stage.name, winnerName, winner?.total_points ?? null);
+
   const stages = await getStages();
   const nextStage = stages
     .filter((s) => s.ordinal > stage.ordinal)
@@ -218,6 +234,11 @@ export async function finalizeAndAdvanceAction(stageId: number): Promise<ActionR
     .update({ status: "draft_open" })
     .eq("id", nextStage.id);
   if (openError) return { success: false, message: friendlyDbError(openError.message) };
+
+  await notifyDraftOpen(nextStage.name);
+  if (nextPicks[0]) {
+    await notifyOnTheClock(nextPicks[0], nextStage.name, 1);
+  }
 
   revalidatePath("/commish");
   revalidatePath("/");
