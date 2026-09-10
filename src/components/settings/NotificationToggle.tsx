@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { PixelButton } from "@/components/ui/PixelButton";
 import { PixelPanel } from "@/components/ui/PixelPanel";
-import { removeSubscription, saveSubscription } from "@/app/(app)/settings/pushActions";
+import {
+  removeSubscription,
+  saveSubscription,
+  sendTestNotification,
+} from "@/app/(app)/settings/pushActions";
 
 /**
  * Turns Web Push on or off for this browser.
@@ -54,6 +58,7 @@ export function NotificationToggle({ vapidPublicKey }: { vapidPublicKey: string 
   const [state, setState] = useState<State>("loading");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [testNote, setTestNote] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (typeof window === "undefined") return;
@@ -131,6 +136,27 @@ export function NotificationToggle({ vapidPublicKey }: { vapidPublicKey: string 
     }
   };
 
+  const sendTest = async () => {
+    setBusy(true);
+    setError(null);
+    setTestNote(null);
+    try {
+      const result = await sendTestNotification();
+      if (result.ok) {
+        // iOS will not show a notification while the app is in the
+        // foreground, so say where to look rather than leaving people
+        // staring at a screen that never changes.
+        setTestNote("Sent. Lock your phone or swipe to the home screen to see it.");
+      } else {
+        setError(result.error ?? "Couldn't send the test.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const disable = async () => {
     setBusy(true);
     setError(null);
@@ -174,13 +200,21 @@ export function NotificationToggle({ vapidPublicKey }: { vapidPublicKey: string 
           This browser doesn&apos;t support push notifications.
         </p>
       ) : state === "on" ? (
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col gap-3">
           <span className="font-mono text-base text-retro-green">
             On for this device.
           </span>
-          <PixelButton type="button" variant="secondary" onClick={disable} disabled={busy}>
-            {busy ? "Working…" : "Turn Off"}
-          </PixelButton>
+          <div className="flex flex-wrap items-center gap-3">
+            <PixelButton type="button" onClick={sendTest} disabled={busy}>
+              {busy ? "Working…" : "Send Test"}
+            </PixelButton>
+            <PixelButton type="button" variant="secondary" onClick={disable} disabled={busy}>
+              Turn Off
+            </PixelButton>
+          </div>
+          {testNote ? (
+            <p className="font-mono text-base text-retro-offwhite/80">{testNote}</p>
+          ) : null}
         </div>
       ) : (
         <PixelButton type="button" onClick={enable} disabled={busy}>

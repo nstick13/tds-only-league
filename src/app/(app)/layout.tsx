@@ -31,11 +31,11 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // page at / carries this week's standings, the season table and every past
   // week, each expandable down to rosters — which is what the old My Roster,
   // Standings and History tabs were showing slices of.
-  // Settings has to be in the nav, not just behind the display name in the
-  // header: that link is hidden below the sm breakpoint, which made the
-  // notification toggle unreachable on exactly the device that needs it.
+  // The TD's Only wordmark to the left is the link home, so the league page
+  // needs no nav entry of its own. Settings does: the display-name link that
+  // used to be the only route there is hidden below the sm breakpoint, which
+  // put the notification toggle out of reach on the one device that can use it.
   const navLinks = [
-    { href: "/", label: "League" },
     { href: "/draft", label: "Draft" },
     { href: "/settings", label: "Settings" },
   ];
