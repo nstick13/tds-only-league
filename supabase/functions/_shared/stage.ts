@@ -12,6 +12,8 @@
 //   4. If neither query returns a row, there is genuinely no sensible
 //      target stage (e.g. the whole season is finalized) — throw, and the
 //      caller logs a sync_log error rather than guessing.
+import { withRetry } from "./retry.ts";
+
 export interface StageRow {
   id: number;
   name: string;
@@ -28,39 +30,55 @@ export interface StageRow {
   first_kickoff_at: string | null;
 }
 
+/**
+ * Every sync job starts here, so a transient failure on these reads takes the
+ * whole run with it — a "stage lookup failed: Gateway Timeout" during live
+ * games costs a full 30-minute scoring interval. All three are read-only and
+ * idempotent, so they retry (see withRetry in db.ts for the honest limits of
+ * that).
+ */
 // deno-lint-ignore no-explicit-any
 export async function resolveStage(
   supabase: any,
   requestedStageId?: number | string | null,
 ): Promise<StageRow> {
   if (requestedStageId !== undefined && requestedStageId !== null) {
-    const { data, error } = await supabase
-      .from("stages")
-      .select("*")
-      .eq("id", requestedStageId)
-      .maybeSingle();
-    if (error) throw new Error(`stage lookup failed: ${error.message}`);
+    const data = await withRetry<StageRow>(
+      "stage lookup",
+      () =>
+        supabase
+          .from("stages")
+          .select("*")
+          .eq("id", requestedStageId)
+          .maybeSingle(),
+    );
     if (!data) throw new Error(`no stage found with id=${requestedStageId}`);
-    return data as StageRow;
+    return data;
   }
 
-  const { data: inProgress, error: e1 } = await supabase
-    .from("stages")
-    .select("*")
-    .in("status", ["draft_open", "locked"])
-    .order("ordinal", { ascending: true })
-    .limit(1);
-  if (e1) throw new Error(`stage lookup failed: ${e1.message}`);
-  if (inProgress && inProgress.length > 0) return inProgress[0] as StageRow;
+  const inProgress = await withRetry<StageRow[]>(
+    "stage lookup",
+    () =>
+      supabase
+        .from("stages")
+        .select("*")
+        .in("status", ["draft_open", "locked"])
+        .order("ordinal", { ascending: true })
+        .limit(1),
+  );
+  if (inProgress && inProgress.length > 0) return inProgress[0];
 
-  const { data: upcoming, error: e2 } = await supabase
-    .from("stages")
-    .select("*")
-    .eq("status", "upcoming")
-    .order("ordinal", { ascending: true })
-    .limit(1);
-  if (e2) throw new Error(`stage lookup failed: ${e2.message}`);
-  if (upcoming && upcoming.length > 0) return upcoming[0] as StageRow;
+  const upcoming = await withRetry<StageRow[]>(
+    "stage lookup",
+    () =>
+      supabase
+        .from("stages")
+        .select("*")
+        .eq("status", "upcoming")
+        .order("ordinal", { ascending: true })
+        .limit(1),
+  );
+  if (upcoming && upcoming.length > 0) return upcoming[0];
 
   throw new Error(
     "no target stage found: no draft_open/locked stage and no upcoming stage remain",
