@@ -43,6 +43,8 @@ import {
   getBoxScore,
   getGamesForWeek,
   hasAnyTd,
+  isFinal,
+  kickoffAt,
   mapWithConcurrency,
   type Tank01Game,
   tdsFor,
@@ -57,6 +59,14 @@ import {
 } from "../_shared/stage.ts";
 
 const GAME_FETCH_CONCURRENCY = 4;
+
+/**
+ * How long a game must have been underway before an empty ingest counts as a
+ * fault rather than a slow start. A box score fetched in the opening minutes
+ * can legitimately carry no stat lines yet; one fetched half an hour in
+ * cannot. Used only by the health checks at the end of the run.
+ */
+const INGEST_GRACE_MS = 20 * 60 * 1000;
 
 /**
  * Timestamp of the last sync-scores run that fetched every game cleanly.
@@ -138,19 +148,47 @@ Deno.serve(async (req: Request) => {
     const isExplicitRerun = body.stage_id !== undefined &&
       body.stage_id !== null;
     const lastClean = isExplicitRerun ? null : await lastCleanRunAt(supabase);
+    // One clock for the whole run, so the fetch decisions and the health
+    // checks below cannot disagree about what time it is.
+    const runAt = new Date();
     const toFetch: Tank01Game[] = [];
     let skippedScheduled = 0;
     let skippedFinal = 0;
     let staleScheduled = 0;
+    // Health-check counters, computed straight from kickoff times rather
+    // than from shouldFetch's reasoning — the point is to catch the fetch
+    // policy itself being wrong, so they must not share its assumptions.
+    let startedButSkippedAsScheduled = 0;
+    let underwayLongEnough = 0;
     for (const game of games) {
-      const decision = shouldFetch(game, lastClean);
+      const decision = shouldFetch(game, lastClean, runAt);
+      const kickoff = kickoffAt(game);
+      const msSinceKickoff = kickoff === null
+        ? null
+        : runAt.getTime() - kickoff.getTime();
+
+      if (
+        msSinceKickoff !== null && msSinceKickoff >= INGEST_GRACE_MS &&
+        !isFinal(game)
+      ) {
+        underwayLongEnough++;
+      }
+
       if (decision.fetch) {
         toFetch.push(game);
         // Counted separately so a provider whose statuses are stuck shows up
         // in the sync log instead of hiding inside the fetched-games total.
         if (decision.reason === "stale-scheduled") staleScheduled++;
-      } else if (decision.reason === "scheduled") skippedScheduled++;
-      else skippedFinal++;
+      } else if (decision.reason === "scheduled") {
+        skippedScheduled++;
+        // A game the clock says has started must never be written off as
+        // "not yet kicked off". If this ever fires, the fetch policy and
+        // reality have come apart — which is exactly the shape of the
+        // Week 1 Sunday outage.
+        if (msSinceKickoff !== null && msSinceKickoff >= 0) {
+          startedButSkippedAsScheduled++;
+        }
+      } else skippedFinal++;
     }
 
     // Every player who appeared in a fetched game, keyed by playerID (which
@@ -248,8 +286,34 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const status = errors.length > 0 ? "error" : "success";
-    const msg =
+    // ---- Health checks ---------------------------------------------------
+    // This job's failure mode is silence, not noise. On Week 1 Sunday it
+    // logged success four runs running while fetching nothing at all, so the
+    // freshness line read "updated just now" with the standings stuck on
+    // zero and the only way to notice was to know a player's real TD count.
+    // Nothing threw, so nothing complained.
+    //
+    // "Did nothing while games were being played" has to be an error row —
+    // that is what stops getSyncFreshness() reporting the run as a fresh
+    // success and makes DataFreshness say so on every page.
+    const problems: string[] = [];
+    if (startedButSkippedAsScheduled > 0) {
+      problems.push(
+        `${startedButSkippedAsScheduled} game(s) past kickoff were skipped as ` +
+          `"not yet kicked off" — the fetch policy disagrees with the clock`,
+      );
+    }
+    if (underwayLongEnough > 0 && rows.length === 0) {
+      problems.push(
+        `${underwayLongEnough} game(s) have been underway 20+ minutes but no ` +
+          `player stats were ingested`,
+      );
+    }
+
+    const status = errors.length > 0 || problems.length > 0
+      ? "error"
+      : "success";
+    const msg = (problems.length > 0 ? `UNHEALTHY: ${problems.join("; ")}. ` : "") +
       `Stage "${stage.name}": fetched ${results.length}/${toFetch.length} ` +
       `box scores of ${games.length} games ` +
       `(skipped ${skippedFinal} already-final, ${skippedScheduled} not yet kicked off` +
@@ -264,7 +328,7 @@ Deno.serve(async (req: Request) => {
     await writeSyncLog(supabase, "scores", status, msg, rows.length);
 
     return jsonResponse({
-      ok: errors.length === 0,
+      ok: errors.length === 0 && problems.length === 0,
       stageId: stage.id,
       stageName: stage.name,
       week: stage.week_num,
@@ -280,6 +344,8 @@ Deno.serve(async (req: Request) => {
       playersWithTds: scorers,
       playersUpserted: rows.length,
       skippedUnknownPlayers: skippedCount,
+      gamesUnderway: underwayLongEnough,
+      healthProblems: problems,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
