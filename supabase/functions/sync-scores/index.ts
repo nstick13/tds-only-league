@@ -254,7 +254,7 @@ Deno.serve(async (req: Request) => {
       `box scores of ${games.length} games ` +
       `(skipped ${skippedFinal} already-final, ${skippedScheduled} not yet kicked off` +
       (staleScheduled > 0
-        ? `, ${staleScheduled} still marked scheduled long after kickoff — fetched anyway`
+        ? `, ${staleScheduled} past kickoff but still marked scheduled — fetched anyway`
         : "") + `). ` +
       `Tallied ${playerIds.length} players, ${scorers} with TDs, upserted ${rows.length} ` +
       `(${skippedCount} skipped — not in players table). ` +
