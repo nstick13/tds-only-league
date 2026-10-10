@@ -16,10 +16,15 @@ import {
   getStages,
   getStageById,
   getManagers,
+  getDraftGuesses,
   getDraftOrder,
   getRosterPicks,
 } from "@/lib/db";
-import { generateDraftOrder, type StandingsSeed } from "@/lib/draftOrder";
+import {
+  generateDraftOrder,
+  seedRoundOneFromGuesses,
+  seedRoundOneFromStandings,
+} from "@/lib/draftOrder";
 import { timeUntil } from "@/lib/timeAgo";
 import { computeStandings } from "@/lib/standings";
 import type { PlayerStageStats } from "@/lib/types";
@@ -135,11 +140,20 @@ export async function openSeasonAction(): Promise<ActionResult> {
 
 /**
  * The core weekly-redraft loop: computes and finalizes standings for
- * `stageId`, then opens the next stage (by ordinal) with its draft order
- * seeded by those standings (last place picks first). If there is no
- * next stage, the season is over — this just finalizes.
+ * `stageId`, then opens the next stage (by ordinal) with its round-1 order
+ * set by the SNF + MNF guesses — closest to `primetimeTotal` picks first,
+ * ties to most TE/WR/RB/QB points, then a coin flip (see
+ * seedRoundOneFromGuesses). If there is no next stage, the season is over —
+ * this just finalizes.
+ *
+ * `primetimeTotal` is the real combined SNF + MNF score. It is required
+ * whenever anyone guessed. A week with no guesses at all (the week the rule
+ * was switched on) falls back to the old order, last place picks first.
  */
-export async function finalizeAndAdvanceAction(stageId: number): Promise<ActionResult> {
+export async function finalizeAndAdvanceAction(
+  stageId: number,
+  primetimeTotal: number | null,
+): Promise<ActionResult> {
   const commish = await requireCommissioner();
   if (!commish) return { success: false, message: "Commissioner access required." };
 
@@ -149,8 +163,27 @@ export async function finalizeAndAdvanceAction(stageId: number): Promise<ActionR
     return { success: false, message: `${stage.name} is already finalized.` };
   }
 
-  const [rosterPicks, managers] = await Promise.all([getRosterPicks(stageId), getManagers()]);
+  const [rosterPicks, managers, guesses] = await Promise.all([
+    getRosterPicks(stageId),
+    getManagers(),
+    getDraftGuesses(stageId),
+  ]);
   const managerIds = managers.map((m) => m.id);
+
+  // Checked before anything is written, so a missing score can't leave the
+  // week finalized with no next draft order.
+  if (primetimeTotal !== null &&
+      (!Number.isInteger(primetimeTotal) || primetimeTotal < 0 || primetimeTotal > 300)) {
+    return { success: false, message: "SNF + MNF total must be a whole number from 0 to 300." };
+  }
+  if (guesses.length > 0 && primetimeTotal === null) {
+    return {
+      success: false,
+      message: `Enter the combined SNF + MNF final score — ${guesses.length} manager${
+        guesses.length === 1 ? "" : "s"
+      } guessed on ${stage.name}.`,
+    };
+  }
 
   const supabase = await createClient();
   const { data: statsData, error: statsError } = await supabase
@@ -185,7 +218,7 @@ export async function finalizeAndAdvanceAction(stageId: number): Promise<ActionR
 
   const { error: finalizeError } = await supabase
     .from("stages")
-    .update({ status: "finalized" })
+    .update({ status: "finalized", primetime_total: primetimeTotal })
     .eq("id", stageId);
   if (finalizeError) return { success: false, message: friendlyDbError(finalizeError.message) };
 
@@ -223,8 +256,36 @@ export async function finalizeAndAdvanceAction(stageId: number): Promise<ActionR
     };
   }
 
-  const seed: StandingsSeed[] = standings.map((s) => ({ manager_id: s.manager_id, rank: s.rank }));
-  const nextPicks = generateDraftOrder(managerIds, seed);
+  let roundOneOrder: string[];
+  let seededBy: string;
+  if (guesses.length > 0 && primetimeTotal !== null) {
+    const guessByManager = new Map(guesses.map((g) => [g.manager_id, g.guess]));
+    roundOneOrder = seedRoundOneFromGuesses(
+      standings.map((s) => ({
+        manager_id: s.manager_id,
+        guess: guessByManager.get(s.manager_id) ?? null,
+        te_points: s.te_points,
+        wr_points: s.wr_points,
+        rb_points: s.rb_points,
+        qb_points: s.qb_points,
+      })),
+      primetimeTotal,
+    );
+    const nameOf = (id: string) => managers.find((m) => m.id === id)?.display_name ?? "?";
+    const offBy = (id: string) => {
+      const g = guessByManager.get(id);
+      return g === undefined ? "no guess" : `${Math.abs(g - primetimeTotal)} off`;
+    };
+    seededBy = `by SNF + MNF guesses (actual ${primetimeTotal}): ${roundOneOrder
+      .map((id) => `${nameOf(id)} (${offBy(id)})`)
+      .join(", ")}`;
+  } else {
+    roundOneOrder = seedRoundOneFromStandings(
+      standings.map((s) => ({ manager_id: s.manager_id, rank: s.rank })),
+    );
+    seededBy = "by standings (last place picks first) — nobody entered a SNF + MNF guess";
+  }
+  const nextPicks = generateDraftOrder(managerIds, roundOneOrder);
 
   const writeError = await writeDraftOrderRows(nextStage.id, nextPicks);
   if (writeError) return { success: false, message: friendlyDbError(writeError) };
@@ -245,7 +306,7 @@ export async function finalizeAndAdvanceAction(stageId: number): Promise<ActionR
   revalidatePath("/draft");
   return {
     success: true,
-    message: `${stage.name} finalized. ${nextStage.name} draft opened, seeded by standings (last place picks first).`,
+    message: `${stage.name} finalized. ${nextStage.name} draft opened, seeded ${seededBy}.`,
     data: undefined,
   };
 }
@@ -288,15 +349,7 @@ export async function updateDraftOrderAction(
     };
   }
 
-  // Re-seed by manufacturing a rank list that sorts (via
-  // seedRoundOneFromStandings' rank-descending sort inside
-  // generateDraftOrder) back into exactly roundOneOrder: give the first
-  // manager the highest rank number so it sorts first, and so on down.
-  const seed: StandingsSeed[] = roundOneOrder.map((managerId, i) => ({
-    manager_id: managerId,
-    rank: roundOneOrder.length - i,
-  }));
-  const picks = generateDraftOrder(managerIds, seed);
+  const picks = generateDraftOrder(managerIds, roundOneOrder);
 
   const writeError = await writeDraftOrderRows(stageId, picks);
   if (writeError) return { success: false, message: friendlyDbError(writeError) };

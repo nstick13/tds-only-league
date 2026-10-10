@@ -2,6 +2,7 @@ import { PixelPanel } from "@/components/ui/PixelPanel";
 import { createClient } from "@/lib/supabase/server";
 import {
   getCurrentStage,
+  getDraftGuesses,
   getDraftOrder,
   getManagers,
   getMyProfile,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/db";
 import { DraftBoard } from "@/app/(app)/draft/DraftBoard";
 import { TeamRosters } from "@/components/draft/TeamRosters";
+import { GuessList } from "@/components/draft/GuessList";
 
 /**
  * /draft — the live draft room. Interactive only while the current stage's
@@ -35,7 +37,11 @@ export default async function DraftPage() {
     );
   }
 
-  const [managers, picks] = await Promise.all([getManagers(), getRosterPicks(stage.id)]);
+  const [managers, picks, guesses] = await Promise.all([
+    getManagers(),
+    getRosterPicks(stage.id),
+    getDraftGuesses(stage.id),
+  ]);
 
   if (stage.status !== "draft_open") {
     const players = picks.length > 0 ? await getPlayers() : [];
@@ -51,6 +57,10 @@ export default async function DraftPage() {
               : "Draft is not open yet."}
           </p>
         </PixelPanel>
+
+        {stage.status === "locked" && guesses.length > 0 ? (
+          <GuessList guesses={guesses} managers={managers} />
+        ) : null}
 
         {picks.length > 0 ? (
           <TeamRosters
@@ -83,6 +93,7 @@ export default async function DraftPage() {
         allPlayers={players}
         currentUserId={user?.id ?? null}
         isCommissioner={profile?.is_commissioner ?? false}
+        myGuess={guesses.find((g) => g.manager_id === user?.id)?.guess ?? null}
       />
     </div>
   );

@@ -8,6 +8,8 @@ import { computeCurrentPick } from "@/components/draft/draftLogic";
 import { DraftOrderStrip } from "@/components/draft/DraftOrderStrip";
 import { PlayerPool } from "@/components/draft/PlayerPool";
 import { TeamRosters } from "@/components/draft/TeamRosters";
+import { GuessPanel } from "@/components/draft/GuessPanel";
+import { ROSTER_SIZE } from "@/lib/roster";
 import { draftPlayer, undoPick } from "@/app/(app)/draft/actions";
 import { PixelButton } from "@/components/ui/PixelButton";
 
@@ -19,6 +21,8 @@ export interface DraftBoardProps {
   allPlayers: Player[];
   currentUserId: string | null;
   isCommissioner?: boolean;
+  /** The signed-in manager's SNF + MNF guess for this stage, if they have one. */
+  myGuess: number | null;
 }
 
 export function DraftBoard({
@@ -29,6 +33,7 @@ export function DraftBoard({
   allPlayers,
   currentUserId,
   isCommissioner = false,
+  myGuess,
 }: DraftBoardProps) {
   const [draftOrder, setDraftOrder] = useState(initialDraftOrder);
   const [picks, setPicks] = useState(initialPicks);
@@ -109,6 +114,9 @@ export function DraftBoard({
     [picks, activeManagerId],
   );
 
+  const isManager = managers.some((m) => m.id === currentUserId);
+  const myPickCount = picks.filter((p) => p.manager_id === currentUserId).length;
+
   const handleDraft = useCallback(
     (player: Player) => {
       setError(null);
@@ -157,6 +165,14 @@ export function DraftBoard({
         currentPickNumber={currentPickNumber}
         currentUserId={currentUserId}
       />
+
+      {isManager ? (
+        <GuessPanel
+          stageId={stageId}
+          initialGuess={myGuess}
+          finalPickNext={myPickCount === ROSTER_SIZE - 1}
+        />
+      ) : null}
 
       {error ? (
         <div className="border-2 border-retro-red bg-field-light px-3 py-2 font-mono text-lg text-retro-red">

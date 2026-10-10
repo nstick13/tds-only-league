@@ -25,6 +25,7 @@ export function SeasonControl({ stages, managers, currentStage }: SeasonControlP
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const [primetimeTotal, setPrimetimeTotal] = useState("");
 
   const firstStage = [...stages].sort((a, b) => a.ordinal - b.ordinal)[0];
   const seasonOpened = !!firstStage && firstStage.status !== "upcoming";
@@ -50,9 +51,15 @@ export function SeasonControl({ stages, managers, currentStage }: SeasonControlP
     if (selectedStageId === "") return;
     setMessage(null);
     startTransition(async () => {
-      const result = await finalizeAndAdvanceAction(selectedStageId);
+      const result = await finalizeAndAdvanceAction(
+        selectedStageId,
+        primetimeTotal === "" ? null : Number(primetimeTotal),
+      );
       setMessage({ text: result.message, ok: result.success });
-      if (result.success) router.refresh();
+      if (result.success) {
+        setPrimetimeTotal("");
+        router.refresh();
+      }
     });
   }
 
@@ -104,7 +111,9 @@ export function SeasonControl({ stages, managers, currentStage }: SeasonControlP
         <h3 className="font-pixel text-xs text-retro-offwhite">Finalize &amp; Advance</h3>
         <p className="font-mono text-sm text-retro-offwhite/70">
           Computes standings for the chosen stage, finalizes it, then opens the next
-          stage&apos;s draft seeded by those standings (last place picks first).
+          stage&apos;s draft. Closest SNF + MNF guess picks first; ties go to most TE,
+          then WR, RB, QB points, then a coin flip. Enter the real combined final score
+          of both games once MNF is over.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <select
@@ -123,6 +132,19 @@ export function SeasonControl({ stages, managers, currentStage }: SeasonControlP
               ))
             )}
           </select>
+          <label className="flex items-center gap-2 font-mono text-base text-retro-offwhite">
+            SNF + MNF total
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={300}
+              step={1}
+              value={primetimeTotal}
+              onChange={(e) => setPrimetimeTotal(e.target.value)}
+              className="w-24 font-mono text-base bg-field border-2 border-retro-offwhite text-retro-offwhite px-2 py-2"
+            />
+          </label>
           <PixelButton
             variant="danger"
             onClick={handleFinalize}

@@ -7,6 +7,7 @@ import { getStageById } from "@/lib/db/stages";
 import { getDraftOrder } from "@/lib/db/draftOrder";
 import { getRosterPicks } from "@/lib/db/roster";
 import { getMyProfile } from "@/lib/db/profiles";
+import { ROSTER_SIZE } from "@/lib/roster";
 import type { Player, Position } from "@/lib/types";
 import {
   computeCurrentPick,
@@ -115,6 +116,30 @@ export async function draftPlayer(
     return { ok: false, error: `${slotPosition} slot is already full for that manager.` };
   }
 
+  // League rule: your SNF + MNF guess has to be in before your final pick.
+  // A commissioner drafting for someone is exempt — they may be covering for
+  // a manager who isn't around to guess (that manager then picks last next
+  // week; see seedRoundOneFromGuesses).
+  const isFinalPick =
+    picks.filter((p) => p.manager_id === pickForManagerId).length === ROSTER_SIZE - 1;
+  if (isFinalPick && !commissionerOverride) {
+    const { data: guess, error: guessError } = await supabase
+      .from("draft_guesses")
+      .select("guess")
+      .eq("stage_id", stageId)
+      .eq("manager_id", pickForManagerId)
+      .maybeSingle();
+    if (guessError) {
+      return { ok: false, error: `Could not check your guess: ${guessError.message}` };
+    }
+    if (!guess) {
+      return {
+        ok: false,
+        error: "Enter your SNF + MNF total guess before making your final pick.",
+      };
+    }
+  }
+
   const { error: insertError } = await supabase.from("roster_picks").insert({
     stage_id: stageId,
     manager_id: pickForManagerId,
@@ -137,6 +162,63 @@ export async function draftPlayer(
 
   revalidatePath("/draft");
   revalidatePath("/");
+  return { ok: true };
+}
+
+/** Highest guess accepted — well above any real SNF + MNF combined score. */
+const MAX_GUESS = 300;
+
+/**
+ * Saves the signed-in manager's guess at this stage's combined Sunday Night
+ * + Monday Night final score. Can be changed freely until kickoff; RLS
+ * (0015_primetime_guesses.sql) enforces that window and keeps the guess
+ * hidden from other managers until then.
+ */
+export async function saveGuess(
+  stageId: number,
+  guess: number,
+): Promise<DraftActionResult> {
+  if (!Number.isInteger(guess) || guess < 0 || guess > MAX_GUESS) {
+    return { ok: false, error: `Guess must be a whole number from 0 to ${MAX_GUESS}.` };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { ok: false, error: "You must be signed in to guess." };
+  }
+
+  const stage = await getStageById(stageId);
+  if (!stage) {
+    return { ok: false, error: "Stage not found." };
+  }
+  if (stage.status !== "draft_open") {
+    return { ok: false, error: "Guesses are locked for this stage." };
+  }
+
+  const { error } = await supabase.from("draft_guesses").upsert(
+    {
+      stage_id: stageId,
+      manager_id: user.id,
+      guess,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "stage_id,manager_id" },
+  );
+  if (error) {
+    // The RLS window check is the authority on kickoff; a rejection here
+    // almost always means the games have started.
+    return {
+      ok: false,
+      error: error.message.includes("row-level security")
+        ? "Guesses are locked — kickoff has passed."
+        : `Could not save guess: ${error.message}`,
+    };
+  }
+
+  revalidatePath("/draft");
   return { ok: true };
 }
 

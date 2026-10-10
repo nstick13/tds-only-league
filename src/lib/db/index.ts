@@ -9,5 +9,6 @@ export * from "./players";
 export * from "./profiles";
 export * from "./roster";
 export * from "./draftOrder";
+export * from "./guesses";
 export * from "./results";
 export * from "./sync";

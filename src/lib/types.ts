@@ -51,6 +51,8 @@ export interface Stage {
   week_num: number | null;
   status: StageStatus;
   first_kickoff_at: string | null;
+  /** Real combined SNF + MNF score, entered by the commissioner at finalize. Null until then. */
+  primetime_total: number | null;
   created_at: string;
 }
 
@@ -86,6 +88,14 @@ export interface RosterPick {
   slot_position: import("./roster").Position;
   pick_number: number | null;
   created_at: string;
+}
+
+/** draft_guesses table — a manager's guess at a stage's combined SNF + MNF score. Others' guesses are hidden by RLS until kickoff. */
+export interface DraftGuess {
+  stage_id: number;
+  manager_id: string;
+  guess: number;
+  updated_at: string;
 }
 
 /** player_stage_stats table — raw TD counts per player per stage. `points` is a DB-generated column (see src/lib/scoring.ts). */
