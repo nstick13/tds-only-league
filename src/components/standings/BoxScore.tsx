@@ -15,6 +15,10 @@ export interface ManagerBoxScore {
   rank: number | null;
   totalPoints: number;
   players: BoxScorePlayerRow[];
+  /** Their SNF + MNF guess for this stage, or null if none (or still sealed). */
+  guess: number | null;
+  /** The real combined SNF + MNF score, once both games have synced. */
+  primetimeTotal: number | null;
 }
 
 const POSITION_ORDER: Record<Position, number> = { QB: 0, RB: 1, WR: 2, TE: 3 };
@@ -37,6 +41,15 @@ export function BoxScore({ box }: { box: ManagerBoxScore }) {
         </span>
         <span className="font-pixel text-sm text-retro-yellow">{box.totalPoints.toFixed(1)} pts</span>
       </div>
+
+      {box.guess !== null ? (
+        <p className="font-mono text-sm text-retro-offwhite/70">
+          SNF + MNF guess: <span className="text-retro-yellow">{box.guess}</span>
+          {box.primetimeTotal !== null
+            ? ` · actual ${box.primetimeTotal}, ${Math.abs(box.guess - box.primetimeTotal)} off`
+            : ""}
+        </p>
+      ) : null}
 
       {players.length === 0 ? (
         <p className="font-mono text-retro-offwhite/60 text-sm">No roster drafted.</p>

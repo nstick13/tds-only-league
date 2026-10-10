@@ -68,6 +68,8 @@ export default async function DraftPage() {
             picks={picks}
             playersById={playersById}
             currentUserId={user?.id ?? null}
+            guessByManager={new Map(guesses.map((g) => [g.manager_id, g.guess]))}
+            guessesRevealed={stage.status === "locked"}
           />
         ) : null}
       </div>

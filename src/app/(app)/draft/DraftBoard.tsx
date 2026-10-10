@@ -38,6 +38,7 @@ export function DraftBoard({
   const [draftOrder, setDraftOrder] = useState(initialDraftOrder);
   const [picks, setPicks] = useState(initialPicks);
   const [error, setError] = useState<string | null>(null);
+  const [guess, setGuess] = useState(myGuess);
   const [draftingPlayerId, setDraftingPlayerId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -115,6 +116,11 @@ export function DraftBoard({
   );
 
   const isManager = managers.some((m) => m.id === currentUserId);
+  // Only the viewer's own guess is visible during the draft (sealed by RLS).
+  const guessByManager = useMemo(
+    () => new Map(currentUserId && guess !== null ? [[currentUserId, guess]] : []),
+    [currentUserId, guess],
+  );
   const myPickCount = picks.filter((p) => p.manager_id === currentUserId).length;
 
   const handleDraft = useCallback(
@@ -171,6 +177,7 @@ export function DraftBoard({
           stageId={stageId}
           initialGuess={myGuess}
           finalPickNext={myPickCount === ROSTER_SIZE - 1}
+          onSaved={setGuess}
         />
       ) : null}
 
@@ -207,6 +214,7 @@ export function DraftBoard({
           picks={picks}
           playersById={playersById}
           currentUserId={currentUserId}
+          guessByManager={guessByManager}
         />
       </div>
     </div>

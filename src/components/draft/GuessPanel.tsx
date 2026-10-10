@@ -10,6 +10,8 @@ interface GuessPanelProps {
   initialGuess: number | null;
   /** True when the manager's next pick is their last — the guess is now required. */
   finalPickNext: boolean;
+  /** Called with the new guess after it saves, so the roster card can update. */
+  onSaved?: (guess: number) => void;
 }
 
 /**
@@ -18,7 +20,7 @@ interface GuessPanelProps {
  * before the final pick, editable until kickoff, and hidden from everyone
  * else until then.
  */
-export function GuessPanel({ stageId, initialGuess, finalPickNext }: GuessPanelProps) {
+export function GuessPanel({ stageId, initialGuess, finalPickNext, onSaved }: GuessPanelProps) {
   const [saved, setSaved] = useState<number | null>(initialGuess);
   const [value, setValue] = useState(initialGuess === null ? "" : String(initialGuess));
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
@@ -34,6 +36,7 @@ export function GuessPanel({ stageId, initialGuess, finalPickNext }: GuessPanelP
       const result = await saveGuess(stageId, guess);
       if (result.ok) {
         setSaved(guess);
+        onSaved?.(guess);
         setMessage({ text: "Guess saved.", ok: true });
       } else {
         setMessage({ text: result.error ?? "Could not save guess.", ok: false });

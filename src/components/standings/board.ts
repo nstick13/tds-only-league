@@ -1,4 +1,4 @@
-import { getRosterPicks, getWeeklyResults } from "@/lib/db";
+import { getDraftGuesses, getRosterPicks, getWeeklyResults } from "@/lib/db";
 import { getStagePlayerStats } from "./queries";
 import { computePoints } from "@/lib/scoring";
 import type { Player, Stage } from "@/lib/types";
@@ -30,11 +30,15 @@ export async function loadStageBoard(
 ): Promise<StageBoard> {
   const finalized = stage.status === "finalized";
 
-  const [picks, stats, results] = await Promise.all([
+  const [picks, stats, results, guesses] = await Promise.all([
     getRosterPicks(stage.id),
     getStagePlayerStats(stage.id),
     finalized ? getWeeklyResults(stage.id) : Promise.resolve([]),
+    // RLS returns only the viewer's own guess until kickoff, so nobody's
+    // sealed guess can leak through the standings.
+    getDraftGuesses(stage.id),
   ]);
+  const guessByManager = new Map(guesses.map((g) => [g.manager_id, g.guess]));
 
   const statsByPlayerId = new Map(stats.map((s) => [s.player_id, s]));
 
@@ -48,6 +52,8 @@ export async function loadStageBoard(
       rank: null,
       totalPoints: 0,
       players: [],
+      guess: guessByManager.get(pick.manager_id) ?? null,
+      primetimeTotal: stage.primetime_total,
     };
 
     const player = playerById.get(pick.player_id);

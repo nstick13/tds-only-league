@@ -10,6 +10,13 @@ export interface TeamRostersProps {
   picks: RosterPick[];
   playersById: Map<string, Player>;
   currentUserId: string | null;
+  /**
+   * SNF + MNF guesses the viewer is allowed to see, by manager id. Before
+   * kickoff RLS only returns the viewer's own; omit to hide the line.
+   */
+  guessByManager?: Map<string, number>;
+  /** True once guesses are unsealed (kickoff passed / stage locked). */
+  guessesRevealed?: boolean;
 }
 
 /** Flat list of every roster slot in display order, e.g. [QB, RB, RB, WR, WR, TE]. */
@@ -23,6 +30,8 @@ export function TeamRosters({
   picks,
   playersById,
   currentUserId,
+  guessByManager,
+  guessesRevealed = false,
 }: TeamRostersProps) {
   return (
     <PixelPanel raised className="flex flex-col gap-3">
@@ -73,6 +82,18 @@ export function TeamRosters({
                   );
                 })}
               </ul>
+              {guessByManager ? (
+                <p className="font-mono text-base mt-1 pt-1 border-t border-retro-offwhite/20 flex justify-between gap-2">
+                  <span className="text-retro-offwhite/50">SNF+MNF</span>
+                  {guessByManager.has(manager.id) ? (
+                    <span className="text-retro-yellow">{guessByManager.get(manager.id)}</span>
+                  ) : (
+                    <span className="text-retro-offwhite/30 italic">
+                      {isMe || guessesRevealed ? "no guess" : "sealed"}
+                    </span>
+                  )}
+                </p>
+              ) : null}
             </div>
           );
         })}
