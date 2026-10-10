@@ -36,6 +36,13 @@
 // games and by skipped games are disjoint. Upserting only the players we saw
 // this run therefore never clobbers a skipped game's already-stored TDs.
 //
+// Primetime scores
+// ------------------------------------------------------------------------
+// The same box scores carry each team's points, so this job also records the
+// combined final score of the week's Sunday Night and Monday Night games
+// (stages.snf_total / mnf_total) for the draft-order guess. No extra API
+// calls — see _shared/primetime.ts.
+//
 // Invoke: POST { "stage_id"?: number }
 import { getServiceClient, writeSyncLog } from "../_shared/db.ts";
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
@@ -51,6 +58,7 @@ import {
   type TdTally,
 } from "../_shared/tank01.ts";
 import { shouldFetch } from "../_shared/gameFetch.ts";
+import { finalCombinedScore, findPrimetimeGames } from "../_shared/primetime.ts";
 import {
   currentSeason,
   isAddressable,
@@ -197,6 +205,10 @@ Deno.serve(async (req: Request) => {
     // TD that was credited live and later reversed by a stat correction.
     const tallies = new Map<string, TdTally>();
 
+    const primetime = findPrimetimeGames(games);
+    // Final combined score of each primetime game fetched this run.
+    const primetimeScores = new Map<string, number>();
+
     const { results, errors } = await mapWithConcurrency(
       toFetch,
       GAME_FETCH_CONCURRENCY,
@@ -205,6 +217,10 @@ Deno.serve(async (req: Request) => {
         const playerStats = box.playerStats;
         if (!playerStats || typeof playerStats !== "object") {
           throw new Error(`game ${game.gameID} box score has no playerStats`);
+        }
+        if (game.gameID === primetime.snf || game.gameID === primetime.mnf) {
+          const total = finalCombinedScore(game, box, runAt);
+          if (total !== null) primetimeScores.set(game.gameID, total);
         }
         for (const [playerId, stats] of Object.entries(playerStats)) {
           if (!playerId || !stats) continue;
@@ -286,6 +302,25 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Only ever set, never cleared: a run that skipped an already-final
+    // primetime game must not wipe the score an earlier run recorded.
+    const primetimeUpdate: { snf_total?: number; mnf_total?: number } = {};
+    if (primetime.snf && primetimeScores.has(primetime.snf)) {
+      primetimeUpdate.snf_total = primetimeScores.get(primetime.snf);
+    }
+    if (primetime.mnf && primetimeScores.has(primetime.mnf)) {
+      primetimeUpdate.mnf_total = primetimeScores.get(primetime.mnf);
+    }
+    if (Object.keys(primetimeUpdate).length > 0) {
+      const { error } = await supabase
+        .from("stages")
+        .update(primetimeUpdate)
+        .eq("id", stage.id);
+      if (error) {
+        throw new Error(`stages primetime score update failed: ${error.message}`);
+      }
+    }
+
     // ---- Health checks ---------------------------------------------------
     // This job's failure mode is silence, not noise. On Week 1 Sunday it
     // logged success four runs running while fetching nothing at all, so the
@@ -324,7 +359,17 @@ Deno.serve(async (req: Request) => {
       `(${skippedCount} skipped — not in players table). ` +
       (errors.length > 0
         ? `${errors.length} box score fetch(es) FAILED — stats for those games are missing this run.`
-        : "All fetched games succeeded.");
+        : "All fetched games succeeded.") +
+      (Object.keys(primetimeUpdate).length > 0
+        ? ` Primetime: ${
+          Object.entries(primetimeUpdate).map(([k, v]) => `${k}=${v}`).join(", ")
+        }.`
+        : "") +
+      (!primetime.snf || !primetime.mnf
+        ? ` No single ${
+          [!primetime.snf && "SNF", !primetime.mnf && "MNF"].filter(Boolean).join(" or ")
+        } game found this week.`
+        : "");
     await writeSyncLog(supabase, "scores", status, msg, rows.length);
 
     return jsonResponse({
@@ -346,6 +391,8 @@ Deno.serve(async (req: Request) => {
       skippedUnknownPlayers: skippedCount,
       gamesUnderway: underwayLongEnough,
       healthProblems: problems,
+      primetimeGames: primetime,
+      primetimeRecorded: primetimeUpdate,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -51,7 +51,11 @@ export interface Stage {
   week_num: number | null;
   status: StageStatus;
   first_kickoff_at: string | null;
-  /** Real combined SNF + MNF score, entered by the commissioner at finalize. Null until then. */
+  /** Sunday Night game's combined final score, recorded by sync-scores. Null until it's over. */
+  snf_total: number | null;
+  /** Monday Night game's combined final score, recorded by sync-scores. Null until it's over. */
+  mnf_total: number | null;
+  /** DB-generated snf_total + mnf_total — null until both are in. Never write it. */
   primetime_total: number | null;
   created_at: string;
 }

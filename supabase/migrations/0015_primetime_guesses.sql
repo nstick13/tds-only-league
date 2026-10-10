@@ -3,7 +3,7 @@
 -- TD's Only League — next week's draft order comes from a SNF + MNF guess
 --
 -- Run this ENTIRE file in one paste into the Supabase Studio SQL editor,
--- AFTER 0001..0014. Purely additive (one new table, one new column), so it is
+-- AFTER 0001..0014. Purely additive (one new table, three new stages columns), so it is
 -- safe to run before the app code that uses it is deployed — the current app
 -- simply ignores both.
 --
@@ -11,10 +11,11 @@
 -- ----------------------------------------------------------------------------
 -- While drafting a week, every manager guesses the COMBINED final score of
 -- that week's Sunday Night and Monday Night games (both teams, both games),
--- and must have a guess in before making their final pick. When the
--- commissioner finalizes the week they enter the real combined score, and
--- the next week's round-1 order is closest guess first (over and under count
--- the same). The snake is unchanged.
+-- and must have a guess in before making their final pick. The sync-scores
+-- Edge Function records each game's final score from the Tank01 box score it
+-- already fetches (homePts + awayPts) — nobody types it in. At finalize the
+-- next week's round-1 order is closest guess first (over and under count the
+-- same). The snake is unchanged.
 --
 -- Ties on distance go to most TE points that week, then WR, RB, QB, then a
 -- coin flip. Total points / total TDs are deliberately NOT tiebreakers here —
@@ -39,10 +40,15 @@ create table if not exists public.draft_guesses (
 comment on table public.draft_guesses is
   'Each manager''s guess at a stage''s combined SNF + MNF final score. Closest guess picks first in the next stage''s draft. Sealed from other managers until kickoff.';
 
--- The real combined SNF + MNF score, entered by the commissioner at finalize.
--- Null until then (and for stages finalized before this rule existed).
+-- Each primetime game's combined final score (both teams), written by
+-- sync-scores once the game is over. primetime_total is their sum, and stays
+-- null until BOTH are in — finalize refuses to seed a draft off half a total.
+alter table public.stages add column if not exists snf_total smallint
+  check (snf_total is null or snf_total >= 0);
+alter table public.stages add column if not exists mnf_total smallint
+  check (mnf_total is null or mnf_total >= 0);
 alter table public.stages add column if not exists primetime_total smallint
-  check (primetime_total is null or primetime_total between 0 and 300);
+  generated always as (snf_total + mnf_total) stored;
 
 alter table public.draft_guesses enable row level security;
 

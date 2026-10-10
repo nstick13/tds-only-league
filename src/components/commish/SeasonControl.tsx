@@ -25,7 +25,6 @@ export function SeasonControl({ stages, managers, currentStage }: SeasonControlP
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
-  const [primetimeTotal, setPrimetimeTotal] = useState("");
 
   const firstStage = [...stages].sort((a, b) => a.ordinal - b.ordinal)[0];
   const seasonOpened = !!firstStage && firstStage.status !== "upcoming";
@@ -37,6 +36,8 @@ export function SeasonControl({ stages, managers, currentStage }: SeasonControlP
   const [selectedStageId, setSelectedStageId] = useState<number | "">(
     currentStage?.id ?? finalizableStages[0]?.id ?? "",
   );
+
+  const selectedStage = stages.find((s) => s.id === selectedStageId) ?? null;
 
   function handleOpenSeason() {
     setMessage(null);
@@ -51,15 +52,9 @@ export function SeasonControl({ stages, managers, currentStage }: SeasonControlP
     if (selectedStageId === "") return;
     setMessage(null);
     startTransition(async () => {
-      const result = await finalizeAndAdvanceAction(
-        selectedStageId,
-        primetimeTotal === "" ? null : Number(primetimeTotal),
-      );
+      const result = await finalizeAndAdvanceAction(selectedStageId);
       setMessage({ text: result.message, ok: result.success });
-      if (result.success) {
-        setPrimetimeTotal("");
-        router.refresh();
-      }
+      if (result.success) router.refresh();
     });
   }
 
@@ -112,9 +107,15 @@ export function SeasonControl({ stages, managers, currentStage }: SeasonControlP
         <p className="font-mono text-sm text-retro-offwhite/70">
           Computes standings for the chosen stage, finalizes it, then opens the next
           stage&apos;s draft. Closest SNF + MNF guess picks first; ties go to most TE,
-          then WR, RB, QB points, then a coin flip. Enter the real combined final score
-          of both games once MNF is over.
+          then WR, RB, QB points, then a coin flip. The real scores come in automatically with Sync
+          Scores — no typing needed.
         </p>
+        {selectedStage ? (
+          <p className="font-mono text-sm text-retro-offwhite">
+            SNF {selectedStage.snf_total ?? "—"} + MNF {selectedStage.mnf_total ?? "—"} ={" "}
+            {selectedStage.primetime_total ?? "waiting on final scores"}
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center gap-3">
           <select
             className="font-mono text-base bg-field border-2 border-retro-offwhite text-retro-offwhite px-2 py-2"
@@ -132,19 +133,6 @@ export function SeasonControl({ stages, managers, currentStage }: SeasonControlP
               ))
             )}
           </select>
-          <label className="flex items-center gap-2 font-mono text-base text-retro-offwhite">
-            SNF + MNF total
-            <input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              max={300}
-              step={1}
-              value={primetimeTotal}
-              onChange={(e) => setPrimetimeTotal(e.target.value)}
-              className="w-24 font-mono text-base bg-field border-2 border-retro-offwhite text-retro-offwhite px-2 py-2"
-            />
-          </label>
           <PixelButton
             variant="danger"
             onClick={handleFinalize}

@@ -141,19 +141,17 @@ export async function openSeasonAction(): Promise<ActionResult> {
 /**
  * The core weekly-redraft loop: computes and finalizes standings for
  * `stageId`, then opens the next stage (by ordinal) with its round-1 order
- * set by the SNF + MNF guesses — closest to `primetimeTotal` picks first,
- * ties to most TE/WR/RB/QB points, then a coin flip (see
+ * set by the SNF + MNF guesses — closest to the real combined score picks
+ * first, ties to most TE/WR/RB/QB points, then a coin flip (see
  * seedRoundOneFromGuesses). If there is no next stage, the season is over —
  * this just finalizes.
  *
- * `primetimeTotal` is the real combined SNF + MNF score. It is required
- * whenever anyone guessed. A week with no guesses at all (the week the rule
- * was switched on) falls back to the old order, last place picks first.
+ * The real score is stages.primetime_total, recorded by sync-scores from the
+ * Tank01 box scores. It is required whenever anyone guessed. A week with no
+ * guesses at all (the week the rule was switched on) falls back to the old
+ * order, last place picks first.
  */
-export async function finalizeAndAdvanceAction(
-  stageId: number,
-  primetimeTotal: number | null,
-): Promise<ActionResult> {
+export async function finalizeAndAdvanceAction(stageId: number): Promise<ActionResult> {
   const commish = await requireCommissioner();
   if (!commish) return { success: false, message: "Commissioner access required." };
 
@@ -172,16 +170,16 @@ export async function finalizeAndAdvanceAction(
 
   // Checked before anything is written, so a missing score can't leave the
   // week finalized with no next draft order.
-  if (primetimeTotal !== null &&
-      (!Number.isInteger(primetimeTotal) || primetimeTotal < 0 || primetimeTotal > 300)) {
-    return { success: false, message: "SNF + MNF total must be a whole number from 0 to 300." };
-  }
+  const primetimeTotal = stage.primetime_total;
   if (guesses.length > 0 && primetimeTotal === null) {
+    const missing = [
+      stage.snf_total === null && "Sunday Night",
+      stage.mnf_total === null && "Monday Night",
+    ].filter(Boolean).join(" and ");
     return {
       success: false,
-      message: `Enter the combined SNF + MNF final score — ${guesses.length} manager${
-        guesses.length === 1 ? "" : "s"
-      } guessed on ${stage.name}.`,
+      message: `The ${missing} final score hasn't synced yet, and the next draft order ` +
+        `depends on it. Once the game is over, press Sync Scores (Sync Data panel) and try again.`,
     };
   }
 
@@ -218,7 +216,7 @@ export async function finalizeAndAdvanceAction(
 
   const { error: finalizeError } = await supabase
     .from("stages")
-    .update({ status: "finalized", primetime_total: primetimeTotal })
+    .update({ status: "finalized" })
     .eq("id", stageId);
   if (finalizeError) return { success: false, message: friendlyDbError(finalizeError.message) };
 

@@ -380,6 +380,9 @@ export interface Tank01BoxScore {
   gameWeek?: string;
   home?: string;
   away?: string;
+  /** Final (or current) score per team, as strings — e.g. "40". */
+  homePts?: string;
+  awayPts?: string;
   /** Keyed by playerID. */
   playerStats?: Record<string, Tank01PlayerGameStats>;
 }
