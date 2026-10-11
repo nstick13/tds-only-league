@@ -58,10 +58,6 @@ export default async function DraftPage() {
           </p>
         </PixelPanel>
 
-        {stage.status === "locked" && guesses.length > 0 ? (
-          <GuessList guesses={guesses} managers={managers} />
-        ) : null}
-
         {picks.length > 0 ? (
           <TeamRosters
             managers={managers}
@@ -71,6 +67,10 @@ export default async function DraftPage() {
             guessByManager={new Map(guesses.map((g) => [g.manager_id, g.guess]))}
             guessesRevealed={stage.status === "locked"}
           />
+        ) : null}
+
+        {stage.status === "locked" && guesses.length > 0 ? (
+          <GuessList guesses={guesses} managers={managers} />
         ) : null}
       </div>
     );
