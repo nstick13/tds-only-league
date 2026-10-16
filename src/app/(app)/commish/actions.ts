@@ -126,7 +126,7 @@ export async function openSeasonAction(): Promise<ActionResult> {
   // manager on the clock for pick #1.
   await notifyDraftOpen(firstStage.name);
   if (picks[0]) {
-    await notifyOnTheClock(picks[0], firstStage.name, 1);
+    await notifyOnTheClock(picks[0], firstStage.id, firstStage.name, 1);
   }
 
   revalidatePath("/commish");
@@ -296,7 +296,7 @@ export async function finalizeAndAdvanceAction(stageId: number): Promise<ActionR
 
   await notifyDraftOpen(nextStage.name);
   if (nextPicks[0]) {
-    await notifyOnTheClock(nextPicks[0], nextStage.name, 1);
+    await notifyOnTheClock(nextPicks[0], nextStage.id, nextStage.name, 1);
   }
 
   revalidatePath("/commish");

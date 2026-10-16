@@ -157,7 +157,7 @@ export async function draftPlayer(
   // its own errors, and this is awaited only to keep it inside the request.
   const next = computeCurrentPick(draftOrder, picks.length + 1);
   if (next.managerId) {
-    await notifyOnTheClock(next.managerId, stage.name, next.pickNumber!);
+    await notifyOnTheClock(next.managerId, stageId, stage.name, next.pickNumber!);
   }
 
   revalidatePath("/draft");

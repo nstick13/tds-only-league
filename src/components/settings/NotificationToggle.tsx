@@ -7,6 +7,7 @@ import {
   removeSubscription,
   saveSubscription,
   sendTestNotification,
+  updateSubscriptionTimeZone,
 } from "@/app/(app)/settings/pushActions";
 
 /**
@@ -47,6 +48,14 @@ function isStandalone(): boolean {
   );
 }
 
+function browserTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function isIos(): boolean {
   if (typeof window === "undefined") return false;
   return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
@@ -75,6 +84,12 @@ export function NotificationToggle({ vapidPublicKey }: { vapidPublicKey: string 
       const registration = await navigator.serviceWorker.getRegistration();
       const existing = await registration?.pushManager.getSubscription();
       setState(existing ? "on" : "off");
+      // Reminders stay quiet overnight in the device's own zone, so keep it
+      // current for subscriptions saved before zones were recorded.
+      const timeZone = browserTimeZone();
+      if (existing && timeZone) {
+        void updateSubscriptionTimeZone(existing.endpoint, timeZone);
+      }
     } catch {
       setState("off");
     }
@@ -118,6 +133,7 @@ export function NotificationToggle({ vapidPublicKey }: { vapidPublicKey: string 
         p256dh: json.keys?.p256dh ?? "",
         auth: json.keys?.auth ?? "",
         userAgent: navigator.userAgent,
+        timeZone: browserTimeZone(),
       });
 
       if (!result.ok) {
@@ -180,8 +196,8 @@ export function NotificationToggle({ vapidPublicKey }: { vapidPublicKey: string 
       <h2 className="font-pixel text-sm text-retro-yellow">Notifications</h2>
 
       <p className="font-mono text-base text-retro-offwhite/80">
-        Get a push when a draft opens, when you&apos;re on the clock, and when a week
-        is final.
+        Get a push when a draft opens, when you&apos;re on the clock (repeated hourly
+        until you pick, but not between 10 PM and 8 AM), and when a week is final.
       </p>
 
       {state === "loading" ? (

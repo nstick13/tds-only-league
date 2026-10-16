@@ -1,9 +1,11 @@
 import "server-only";
 import { allManagerIds, sendToManagers } from "./send";
+import { recordClockStart } from "./reminders";
 
 /**
  * The league's notification vocabulary. Two events, per the league's choice:
- * something needs you in the draft, and a week is in the books. No live
+ * something needs you in the draft (repeated hourly while you're on the
+ * clock), and a week is in the books. No live
  * scoring alerts — TDs land through the normal sync and show up on the
  * league page.
  *
@@ -25,12 +27,17 @@ export async function notifyDraftOpen(stageName: string): Promise<void> {
   });
 }
 
-/** One manager is on the clock. Sent to that manager only. */
+/**
+ * One manager is on the clock. Sent to that manager only, and repeated hourly
+ * by the reminder job (./reminders.ts) until they pick.
+ */
 export async function notifyOnTheClock(
   managerId: string,
+  stageId: number,
   stageName: string,
   pickNumber: number,
 ): Promise<void> {
+  await recordClockStart(stageId, pickNumber, managerId);
   await sendToManagers([managerId], {
     title: "You're on the clock",
     body: `${stageName} — pick #${pickNumber} is yours.`,

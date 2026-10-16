@@ -15,6 +15,8 @@ export interface SaveSubscriptionInput {
   p256dh: string;
   auth: string;
   userAgent?: string;
+  /** IANA zone from the browser, e.g. "America/Chicago" — decides quiet hours for reminders. */
+  timeZone?: string;
 }
 
 export async function saveSubscription(
@@ -42,6 +44,7 @@ export async function saveSubscription(
         p256dh: input.p256dh,
         auth: input.auth,
         user_agent: input.userAgent ?? null,
+        time_zone: input.timeZone ?? null,
         last_failure_at: null,
       },
       { onConflict: "endpoint" },
@@ -68,6 +71,28 @@ export async function removeSubscription(
 
   if (error) return { ok: false, error: error.message };
   return { ok: true };
+}
+
+/**
+ * Keeps an existing subscription's time zone current. Devices that turned
+ * notifications on before time zones were recorded have none, and a phone
+ * that travels changes zone — both are fixed the next time Settings opens.
+ */
+export async function updateSubscriptionTimeZone(
+  endpoint: string,
+  timeZone: string,
+): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user || !endpoint || !timeZone) return;
+
+  await supabase
+    .from("push_subscriptions")
+    .update({ time_zone: timeZone })
+    .eq("endpoint", endpoint)
+    .eq("manager_id", user.id);
 }
 
 /**

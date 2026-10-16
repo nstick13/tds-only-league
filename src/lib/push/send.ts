@@ -7,9 +7,10 @@ import { serviceRoleEnv } from "@/lib/supabase/env";
  * Web Push sending. Server-only: the VAPID private key must never reach a
  * browser bundle, hence the "server-only" import guard.
  *
- * The league sends exactly two kinds of notification — a draft is open / you
- * are on the clock, and a week has been finalized. Both originate from server
- * actions the app already runs, so there is no cron or Edge Function here.
+ * The league sends two kinds of notification — a draft is open / you are on
+ * the clock, and a week has been finalized. Most originate from server
+ * actions; the hourly "still your pick" reminder comes from a pg_cron call to
+ * /api/cron/draft-reminders (see src/lib/push/reminders.ts).
  */
 
 export interface PushPayload {
@@ -63,6 +64,8 @@ function adminClient() {
 export async function sendToManagers(
   managerIds: string[],
   payload: PushPayload,
+  /** Skip some devices — the reminder job uses this to stay quiet overnight in each device's zone. */
+  includeDevice?: (device: { timeZone: string | null }) => boolean,
 ): Promise<{ sent: number; failed: number }> {
   if (managerIds.length === 0) return { sent: 0, failed: 0 };
   if (!configure()) return { sent: 0, failed: 0 };
@@ -75,12 +78,21 @@ export async function sendToManagers(
     return { sent: 0, failed: 0 };
   }
 
-  const { data, error } = await supabase
-    .from("push_subscriptions")
-    .select("id, endpoint, p256dh, auth")
-    .in("manager_id", managerIds);
+  const query = (columns: string) =>
+    supabase.from("push_subscriptions").select(columns).in("manager_id", managerIds);
+  let { data, error } = await query("id, endpoint, p256dh, auth, time_zone");
+  if (error) {
+    // time_zone arrives with 0016_draft_reminders.sql. If the app deploys
+    // before that migration runs, every push must not go dark with it.
+    ({ data, error } = await query("id, endpoint, p256dh, auth"));
+  }
 
-  if (error || !data || data.length === 0) return { sent: 0, failed: 0 };
+  if (error || !data) return { sent: 0, failed: 0 };
+  const rows = data as unknown as Record<string, unknown>[];
+  const devices = includeDevice
+    ? rows.filter((row) => includeDevice({ timeZone: (row.time_zone as string | null) ?? null }))
+    : rows;
+  if (devices.length === 0) return { sent: 0, failed: 0 };
 
   const body = JSON.stringify(payload);
   const goneIds: string[] = [];
@@ -88,7 +100,7 @@ export async function sendToManagers(
   let failed = 0;
 
   await Promise.all(
-    data.map(async (row) => {
+    devices.map(async (row) => {
       try {
         await webpush.sendNotification(
           {
